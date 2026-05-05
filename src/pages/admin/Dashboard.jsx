@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Spinner } from '../../components/ui/Spinner'
 import { useToast } from '../../components/ui/Toast'
-import { getMetricasDashboard, getTurnosPendientes, actualizarTurno } from '../../services/turnos.service'
+import { getMetricasDashboard, getTurnosPendientes, getTurnosProximos, actualizarTurno } from '../../services/turnos.service'
 import { getPacienteByUserId } from '../../services/pacientes.service'
 import { getObrasSociales } from '../../services/obrasSociales.service'
 import { formatHora, formatFechaLarga, formatFecha } from '../../utils'
@@ -39,6 +39,7 @@ export default function Dashboard() {
   const toast = useToast()
   const [metricas, setMetricas] = useState(null)
   const [turnosDetalle, setTurnosDetalle] = useState([])
+  const [turnosProximos, setTurnosProximos] = useState([])
   const [loading, setLoading] = useState(true)
 
   // Modal pendientes
@@ -49,15 +50,23 @@ export default function Dashboard() {
   const [actionLoading, setActionLoading] = useState(null)
 
   const load = useCallback(async () => {
-    const m = await getMetricasDashboard()
+    const [m, proximos] = await Promise.all([
+      getMetricasDashboard(),
+      getTurnosProximos(5),
+    ])
     setMetricas(m)
-    const detalle = await Promise.all(
-      m.turnosHoy.map(async t => {
+    const [detalle, proximosDetalle] = await Promise.all([
+      Promise.all(m.turnosHoy.map(async t => {
         const paciente = await getPacienteByUserId(t.userId).catch(() => null)
         return { ...t, paciente }
-      })
-    )
+      })),
+      Promise.all(proximos.map(async t => {
+        const paciente = await getPacienteByUserId(t.userId).catch(() => null)
+        return { ...t, paciente }
+      })),
+    ])
     setTurnosDetalle(detalle)
+    setTurnosProximos(proximosDetalle)
     setLoading(false)
   }, [])
 
@@ -168,6 +177,54 @@ export default function Dashboard() {
                 <Badge estado={t.estado} />
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Próximos 5 turnos (sin hoy) */}
+      <Card>
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-800">Próximos turnos</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Confirmados y pendientes a partir de mañana</p>
+        </div>
+        {turnosProximos.length === 0 ? (
+          <CardBody>
+            <p className="text-gray-400 text-sm text-center py-6">No hay turnos próximos agendados</p>
+          </CardBody>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {turnosProximos.map(t => {
+              const fd = t.fecha?.toDate ? t.fecha.toDate() : null
+              const hoy = new Date(); hoy.setHours(0,0,0,0)
+              const diff = fd ? Math.round((new Date(fd).setHours(0,0,0,0) - hoy) / 86400000) : null
+              const fechaLabel = diff === 1 ? 'Mañana'
+                : diff === 2 ? 'Pasado mañana'
+                : fd ? fd.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+                : '—'
+              return (
+                <div key={t.id} className="px-6 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {t.paciente?.fotoUrl ? (
+                      <img src={t.paciente.fotoUrl} alt="" className="w-9 h-9 rounded-full border border-gray-200 shrink-0" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-[#1565C0] font-semibold text-xs shrink-0">
+                        {t.paciente?.nombre?.[0] ?? '?'}{t.paciente?.apellido?.[0] ?? ''}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-800 text-sm truncate">
+                        {t.paciente?.nombre ?? 'Paciente'} {t.paciente?.apellido ?? ''}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        <span className="font-medium text-gray-600 capitalize">{fechaLabel}</span>
+                        {' · '}{t.horaInicio}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge estado={t.estado} />
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>

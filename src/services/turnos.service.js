@@ -108,6 +108,29 @@ export async function getSlotsByFecha(dateStr, disponibilidad, duracionMin, bloq
   return generarSlots(dispDia.franjas, duracionMin, conteoOcupados)
 }
 
+export async function getTurnosProximos(limit = 5) {
+  const manana = new Date()
+  manana.setDate(manana.getDate() + 1)
+  manana.setHours(0, 0, 0, 0)
+  const hasta = new Date(manana)
+  hasta.setDate(hasta.getDate() + 60)
+  const q = query(
+    collection(db, 'turnos'),
+    where('fecha', '>=', Timestamp.fromDate(manana)),
+    where('fecha', '<=', Timestamp.fromDate(hasta)),
+  )
+  const snap = await getDocs(q)
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(t => ['pendiente', 'confirmado', 'propuesto'].includes(t.estado))
+    .sort((a, b) => {
+      const fa = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha ?? 0)
+      const fb = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha ?? 0)
+      return fa - fb || (a.horaInicio || '').localeCompare(b.horaInicio || '')
+    })
+    .slice(0, limit)
+}
+
 export async function getOcupacionRango(startDate, endDate) {
   const turnos = await getTurnosRango(startDate, endDate)
   const result = {}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, Plus, Trash2, ChevronRight, Edit2, FileText } from 'lucide-react'
+import { Search, Plus, Trash2, ChevronRight, Edit2, FileText, RefreshCw } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
@@ -15,8 +15,9 @@ import {
 import {
   getObrasSociales, crearObraSocial, actualizarObraSocial, eliminarObraSocial,
 } from '../../services/obrasSociales.service'
-import { getTurnosByPaciente } from '../../services/turnos.service'
-import { formatFecha } from '../../utils'
+import { getTurnosByPaciente, proponerReprogramacion, getSlotsByFecha } from '../../services/turnos.service'
+import { useDisponibilidad } from '../../hooks/useDisponibilidad'
+import { formatFecha, addMinutes } from '../../utils'
 
 const TABS = ['Pacientes', 'Obras Sociales']
 
@@ -46,6 +47,7 @@ const EMPTY_FORM = {
 
 export default function Pacientes() {
   const toast = useToast()
+  const { disponibilidad, bloqueos: dispBloqueos, config } = useDisponibilidad()
   const [activeTab, setActiveTab] = useState(0)
 
   // Pacientes
@@ -62,6 +64,14 @@ export default function Pacientes() {
   const [creating, setCreating] = useState(false)
   const [newForm, setNewForm] = useState(EMPTY_FORM)
   const [creatingLoading, setCreatingLoading] = useState(false)
+
+  // Reprogramar turno desde historial
+  const [reprogramarTurno, setReprogramarTurno] = useState(null)
+  const [reprFecha, setReprFecha] = useState('')
+  const [reprSlots, setReprSlots] = useState([])
+  const [reprSlotsLoading, setReprSlotsLoading] = useState(false)
+  const [reprHora, setReprHora] = useState('')
+  const [savingRepr, setSavingRepr] = useState(false)
 
   // Obras Sociales
   const [obrasSociales, setObrasSociales] = useState([])
@@ -215,6 +225,42 @@ export default function Pacientes() {
       toast({ message: 'Error al eliminar', type: 'error' })
     } finally {
       setDeletingOs(null)
+    }
+  }
+
+  // Cargar slots disponibles al cambiar fecha de reprogramación
+  useEffect(() => {
+    if (!reprFecha || !config || !Object.keys(disponibilidad).length) return
+    setReprSlotsLoading(true)
+    setReprHora('')
+    getSlotsByFecha(reprFecha, disponibilidad, config.duracionSesionMin || 30, dispBloqueos)
+      .then(s => { setReprSlots(s); setReprSlotsLoading(false) })
+  }, [reprFecha, disponibilidad, config, dispBloqueos])
+
+  async function handleReprogramar() {
+    if (!reprFecha || !reprHora || !reprogramarTurno) return
+    setSavingRepr(true)
+    try {
+      const horaFin = addMinutes(reprHora, config?.duracionSesionMin || 30)
+      await proponerReprogramacion(reprogramarTurno.id, {
+        userId: reprogramarTurno.userId,
+        pacienteId: reprogramarTurno.pacienteId || reprogramarTurno.userId,
+        fecha: reprFecha,
+        horaInicio: reprHora,
+        horaFin,
+      })
+      toast({ message: 'Propuesta enviada al paciente', type: 'success' })
+      setReprogramarTurno(null)
+      setReprFecha(''); setReprHora(''); setReprSlots([])
+      // Refrescar turnos del paciente
+      if (selected) {
+        const ts = await getTurnosByPaciente(selected.id)
+        setTurnos(ts)
+      }
+    } catch {
+      toast({ message: 'Error al enviar propuesta', type: 'error' })
+    } finally {
+      setSavingRepr(false)
     }
   }
 
@@ -421,16 +467,30 @@ export default function Pacientes() {
               {turnos.length === 0 ? (
                 <p className="text-sm text-gray-400">Sin turnos registrados</p>
               ) : (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {turnos.map(t => (
-                    <div key={t.id} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-4 py-2">
-                      <div>
+                    <div key={t.id} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-4 py-2 gap-2">
+                      <div className="min-w-0">
                         <span className="font-medium">
                           {t.fecha ? formatFecha(t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)) : ''}
                         </span>
                         <span className="text-gray-400 ml-2">{t.horaInicio}</span>
                       </div>
-                      <Badge estado={t.estado} />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge estado={t.estado} />
+                        {t.estado !== 'propuesto' && (
+                          <button
+                            onClick={() => {
+                              setReprogramarTurno(t)
+                              setReprFecha(''); setReprHora(''); setReprSlots([])
+                            }}
+                            className="flex items-center gap-1 text-xs text-[#1565C0] hover:underline font-medium shrink-0"
+                            title="Proponer nuevo turno"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Reprogramar
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -452,6 +512,106 @@ export default function Pacientes() {
                 )}
               </div>
               <Button onClick={handleSave} loading={saving}>Guardar cambios</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal reprogramar turno desde historial */}
+      <Modal
+        open={!!reprogramarTurno}
+        onClose={() => { setReprogramarTurno(null); setReprFecha(''); setReprHora(''); setReprSlots([]) }}
+        title="Proponer nuevo turno"
+        size="md"
+      >
+        {reprogramarTurno && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800">
+              <p className="font-medium">{selected?.nombre} {selected?.apellido}</p>
+              <p className="text-blue-600 text-xs mt-0.5">
+                Turno original:{' '}
+                {reprogramarTurno.fecha
+                  ? formatFecha(reprogramarTurno.fecha?.toDate ? reprogramarTurno.fecha.toDate() : new Date(reprogramarTurno.fecha))
+                  : '—'}{' '}
+                · {reprogramarTurno.horaInicio}hs — <Badge estado={reprogramarTurno.estado} />
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nueva fecha</label>
+              <input
+                type="date"
+                value={reprFecha}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={e => setReprFecha(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]"
+              />
+            </div>
+
+            {reprFecha && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Nuevo horario</p>
+                {reprSlotsLoading ? (
+                  <Spinner className="h-16" />
+                ) : reprSlots.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-3 bg-gray-50 rounded-lg">
+                    Sin cupos disponibles para esta fecha
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {reprSlots.map(slot => (
+                      <button
+                        key={slot.hora}
+                        onClick={() => setReprHora(slot.hora)}
+                        className={`py-2 rounded-xl border text-sm font-medium transition-colors flex flex-col items-center gap-0.5
+                          ${reprHora === slot.hora
+                            ? 'bg-[#1565C0] border-[#1565C0] text-white'
+                            : 'border-gray-200 text-gray-700 hover:border-[#1565C0] hover:text-[#1565C0]'}`}
+                      >
+                        <span>{slot.hora}</span>
+                        {slot.capacidad > 1 && (
+                          <span className={`text-[10px] font-normal ${reprHora === slot.hora ? 'text-blue-100' : 'text-gray-400'}`}>
+                            {slot.disponibles} lugar{slot.disponibles !== 1 ? 'es' : ''}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {reprFecha && reprHora && (
+              <div className="bg-green-50 border border-green-100 rounded-lg px-4 py-2 text-sm text-green-800">
+                Propuesta: <strong>{reprFecha}</strong> a las <strong>{reprHora}hs</strong>
+                {config?.duracionSesionMin && (
+                  <span className="text-green-600 text-xs ml-1">
+                    (hasta {addMinutes(reprHora, config.duracionSesionMin)})
+                  </span>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-400">
+              El paciente recibirá la propuesta en "Mis Turnos" y podrá aceptarla o rechazarla.
+            </p>
+
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={handleReprogramar}
+                loading={savingRepr}
+                disabled={!reprFecha || !reprHora}
+              >
+                <RefreshCw className="w-4 h-4" /> Enviar propuesta
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={() => { setReprogramarTurno(null); setReprFecha(''); setReprHora(''); setReprSlots([]) }}
+              >
+                Cancelar
+              </Button>
             </div>
           </div>
         )}
