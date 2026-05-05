@@ -6,11 +6,12 @@ import { useToast } from '../../components/ui/Toast'
 import { Button } from '../../components/ui/Button'
 import { Textarea } from '../../components/ui/Textarea'
 import { Spinner } from '../../components/ui/Spinner'
-import { crearTurno, getTurnoActivoPaciente, getSlotsByFecha } from '../../services/turnos.service'
+import { crearTurno, getTurnoActivoPaciente, getSlotsByFecha, getOcupacionRango } from '../../services/turnos.service'
 import { isFechaBlocked } from '../../services/disponibilidad.service'
 import { updateUserData } from '../../services/pacientes.service'
+import { getObrasSociales } from '../../services/obrasSociales.service'
 import { addMinutes, getDiaSemana, formatFechaLarga, generarSlots } from '../../utils'
-import { ChevronLeft, ChevronRight, CheckCircle, AlertCircle, MessageCircle, CreditCard, Phone } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle, AlertCircle, MessageCircle, CreditCard, Phone, Info } from 'lucide-react'
 import { WA_ADMIN as WA_NUMBER } from '../../constants'
 import { Input } from '../../components/ui/Input'
 
@@ -35,16 +36,13 @@ const TURNOS_FILTROS = [
   { label: '🌇 Tarde', value: 'tarde' },
 ]
 
-// Helpers para verificar si un día tiene franjas de mañana o tarde
 function hasFranjaManana(franjas) {
   return franjas?.some(f => parseInt(f.inicio.split(':')[0], 10) < 13) ?? false
 }
 function hasFranjaTarde(franjas) {
-  return franjas?.some(f => parseInt(f.inicio.split(':')[0], 10) >= 13 ||
-    parseInt(f.fin.split(':')[0], 10) > 13) ?? false
+  return franjas?.some(f => parseInt(f.inicio.split(':')[0], 10) >= 13 || parseInt(f.fin.split(':')[0], 10) > 13) ?? false
 }
 
-// Devuelve los próximos N slots disponibles con fecha y horario exacto
 function getProximosSlots(disponibilidad, bloqueos, filtroHorario, duracionMin, cantidad = 3) {
   const result = []
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
@@ -56,16 +54,16 @@ function getProximosSlots(disponibilidad, bloqueos, filtroHorario, duracionMin, 
       const dia = getDiaSemana(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12))
       const dispDia = disponibilidad[dia]
       if (dispDia?.activo && dispDia?.franjas?.length > 0) {
-        const todos = generarSlots(dispDia.franjas, duracionMin, [])
+        const todos = generarSlots(dispDia.franjas, duracionMin, {})
         const filtrados = todos.filter(s => {
-          const h = parseInt(s.split(':')[0], 10)
+          const h = parseInt(s.hora.split(':')[0], 10)
           if (filtroHorario === 'manana') return h < 13
           if (filtroHorario === 'tarde')  return h >= 13
           return true
         })
-        for (const hora of filtrados) {
+        for (const s of filtrados) {
           if (result.length >= cantidad) break
-          result.push({ fecha: ds, hora, fechaDate: new Date(d) })
+          result.push({ fecha: ds, hora: s.hora, fechaDate: new Date(d) })
         }
       }
     }
@@ -78,18 +76,17 @@ function SlotPicker({ slots, value, onChange, filtroInicial = 'todos' }) {
   const [filtro, setFiltro] = useState(filtroInicial)
 
   const slotsFiltrados = slots.filter(slot => {
-    const hora = parseInt(slot.split(':')[0], 10)
+    const hora = parseInt(slot.hora.split(':')[0], 10)
     if (filtro === 'manana') return hora < 13
     if (filtro === 'tarde') return hora >= 13
     return true
   })
 
-  const hayManana = slots.some(s => parseInt(s.split(':')[0], 10) < 13)
-  const hayTarde  = slots.some(s => parseInt(s.split(':')[0], 10) >= 13)
+  const hayManana = slots.some(s => parseInt(s.hora.split(':')[0], 10) < 13)
+  const hayTarde  = slots.some(s => parseInt(s.hora.split(':')[0], 10) >= 13)
 
   return (
     <div className="space-y-3">
-      {/* Filtros */}
       <div className="flex gap-2">
         {TURNOS_FILTROS.map(f => {
           const disabled = (f.value === 'manana' && !hayManana) || (f.value === 'tarde' && !hayTarde)
@@ -111,7 +108,6 @@ function SlotPicker({ slots, value, onChange, filtroInicial = 'todos' }) {
         })}
       </div>
 
-      {/* Slots */}
       {slotsFiltrados.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-4">
           No hay turnos disponibles por la {filtro === 'manana' ? 'mañana' : 'tarde'}
@@ -120,14 +116,19 @@ function SlotPicker({ slots, value, onChange, filtroInicial = 'todos' }) {
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {slotsFiltrados.map(slot => (
             <button
-              key={slot}
-              onClick={() => onChange(slot)}
-              className={`py-2.5 rounded-xl border text-sm font-medium transition-colors
-                ${value === slot
+              key={slot.hora}
+              onClick={() => onChange(slot.hora)}
+              className={`py-2.5 px-1 rounded-xl border text-sm font-medium transition-colors flex flex-col items-center gap-0.5
+                ${value === slot.hora
                   ? 'bg-[#1565C0] border-[#1565C0] text-white'
                   : 'border-gray-200 text-gray-700 hover:border-[#1565C0] hover:text-[#1565C0]'}`}
             >
-              {slot}
+              <span>{slot.hora}</span>
+              {slot.capacidad > 1 && (
+                <span className={`text-xs font-normal leading-none ${value === slot.hora ? 'text-blue-100' : 'text-gray-400'}`}>
+                  {slot.disponibles} lugar{slot.disponibles !== 1 ? 'es' : ''}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -136,7 +137,7 @@ function SlotPicker({ slots, value, onChange, filtroInicial = 'todos' }) {
   )
 }
 
-function MesCalendar({ value, onChange, disponibilidad, bloqueos, filtroHorario = 'todos' }) {
+function MesCalendar({ value, onChange, disponibilidad, bloqueos, filtroHorario = 'todos', ocupacion = {}, duracionMin = 30 }) {
   const [mes, setMes] = useState(() => { const d = new Date(); d.setDate(1); return d })
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
   const diasMes = new Date(mes.getFullYear(), mes.getMonth() + 1, 0).getDate()
@@ -144,17 +145,25 @@ function MesCalendar({ value, onChange, disponibilidad, bloqueos, filtroHorario 
   const offset = primerDia === 0 ? 6 : primerDia - 1
   const DIAS_H = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
-  function isAvailable(day) {
+  function dayStatus(day) {
     const d = new Date(mes.getFullYear(), mes.getMonth(), day)
-    if (d < hoy) return false
+    if (d < hoy) return 'past'
     const ds = dateStr(d)
-    if (isFechaBlocked(ds, bloqueos)) return false
+    if (isFechaBlocked(ds, bloqueos)) return 'blocked'
     const dia = getDiaSemana(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12))
     const dispDia = disponibilidad[dia]
-    if (!dispDia?.activo || !dispDia?.franjas?.length) return false
-    if (filtroHorario === 'manana') return hasFranjaManana(dispDia.franjas)
-    if (filtroHorario === 'tarde')  return hasFranjaTarde(dispDia.franjas)
-    return true
+    if (!dispDia?.activo || !dispDia?.franjas?.length) return 'inactive'
+    if (filtroHorario === 'manana' && !hasFranjaManana(dispDia.franjas)) return 'inactive'
+    if (filtroHorario === 'tarde'  && !hasFranjaTarde(dispDia.franjas))  return 'inactive'
+    const conteo = ocupacion[ds] ?? {}
+    const slots = generarSlots(dispDia.franjas, duracionMin, conteo)
+    const filteredSlots = slots.filter(s => {
+      const h = parseInt(s.hora.split(':')[0], 10)
+      if (filtroHorario === 'manana') return h < 13
+      if (filtroHorario === 'tarde')  return h >= 13
+      return true
+    })
+    return filteredSlots.length === 0 ? 'full' : 'available'
   }
 
   return (
@@ -176,25 +185,33 @@ function MesCalendar({ value, onChange, disponibilidad, bloqueos, filtroHorario 
       <div className="grid grid-cols-7 gap-1">
         {Array.from({ length: offset }).map((_, i) => <div key={`e${i}`} />)}
         {Array.from({ length: diasMes }, (_, i) => i + 1).map(day => {
-          const avail = isAvailable(day)
+          const status = dayStatus(day)
           const ds = dateStr(new Date(mes.getFullYear(), mes.getMonth(), day))
           const selected = value === ds
           return (
             <button
               key={day}
-              disabled={!avail}
+              disabled={status !== 'available'}
               onClick={() => onChange(ds)}
-              className={`rounded-lg py-2 text-sm font-medium transition-colors
+              title={status === 'full' ? 'Sin cupos disponibles' : undefined}
+              className={`rounded-lg py-2 text-sm font-medium transition-colors relative
                 ${selected ? 'bg-[#1565C0] text-white' : ''}
-                ${avail && !selected ? 'hover:bg-blue-50 text-gray-700' : ''}
-                ${!avail ? 'text-gray-300 cursor-not-allowed' : ''}
+                ${status === 'available' && !selected ? 'hover:bg-blue-50 text-gray-700' : ''}
+                ${status === 'past' || status === 'inactive' || status === 'blocked' ? 'text-gray-300 cursor-not-allowed' : ''}
+                ${status === 'full' ? 'text-orange-300 cursor-not-allowed' : ''}
               `}
             >
               {day}
+              {status === 'full' && (
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-orange-400" />
+              )}
             </button>
           )
         })}
       </div>
+      <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
+        <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" /> Sin cupos disponibles
+      </p>
     </div>
   )
 }
@@ -214,20 +231,26 @@ export default function Reservar() {
   const [notas, setNotas] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [turnoActivo, setTurnoActivo] = useState(undefined)
+  const [ocupacion, setOcupacion] = useState({})
 
   // Perfil incompleto
-  const [perfilForm, setPerfilForm] = useState({ nombre: '', apellido: '', telefono: '' })
+  const [perfilForm, setPerfilForm] = useState({ nombre: '', apellido: '', telefono: '', obraSocialId: '' })
   const [savingPerfil, setSavingPerfil] = useState(false)
+  const [obrasSociales, setObrasSociales] = useState([])
 
-  // Restaurar estado guardado antes del login
+  useEffect(() => { getObrasSociales().then(setObrasSociales) }, [])
+
+  // Restaurar estado después del login
   useEffect(() => {
     const saved = sessionStorage.getItem('reservar_state')
     if (saved) {
       try {
         const { fecha, hora, step: savedStep } = JSON.parse(saved)
         if (fecha) setFechaSeleccionada(fecha)
-        if (hora)  setHoraSeleccionada(hora)
-        if (savedStep) setStep(savedStep)
+        if (hora && fecha) {
+          setHoraSeleccionada(hora)
+          if (savedStep) setStep(savedStep)
+        }
       } catch {}
       sessionStorage.removeItem('reservar_state')
     }
@@ -239,6 +262,7 @@ export default function Reservar() {
         nombre: userData.nombre || '',
         apellido: userData.apellido || '',
         telefono: userData.telefono || '',
+        obraSocialId: userData.obraSocialId || '',
       })
     }
   }, [userData])
@@ -248,10 +272,19 @@ export default function Reservar() {
     getTurnoActivoPaciente(user.uid).then(t => setTurnoActivo(t))
   }, [user])
 
+  // Cargar ocupación real del mes visible
+  useEffect(() => {
+    if (loading) return
+    const hoy = new Date()
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth() + 2, 0)
+    getOcupacionRango(inicio, fin).then(setOcupacion)
+  }, [loading])
+
   useEffect(() => {
     if (!fechaSeleccionada || !config) return
     setSlotsLoading(true)
-    getSlotsByFecha(fechaSeleccionada, disponibilidad, config.duracionSesionMin || 45, bloqueos)
+    getSlotsByFecha(fechaSeleccionada, disponibilidad, config.duracionSesionMin || 30, bloqueos)
       .then(s => { setSlots(s); setSlotsLoading(false) })
   }, [fechaSeleccionada, disponibilidad, config, bloqueos])
 
@@ -269,7 +302,7 @@ export default function Reservar() {
     try {
       const existente = await getTurnoActivoPaciente(user.uid)
       if (existente) { toast({ message: 'Ya tenés un turno activo', type: 'error' }); return }
-      const horaFin = addMinutes(horaSeleccionada, config?.duracionSesionMin || 45)
+      const horaFin = addMinutes(horaSeleccionada, config?.duracionSesionMin || 30)
       await crearTurno({
         userId: user.uid,
         pacienteId: user.uid,
@@ -291,9 +324,12 @@ export default function Reservar() {
     if (!perfilForm.telefono.trim()) {
       toast({ message: 'El teléfono es obligatorio', type: 'error' }); return
     }
+    if (!perfilForm.obraSocialId) {
+      toast({ message: 'Seleccioná tu obra social', type: 'error' }); return
+    }
     setSavingPerfil(true)
     try {
-      await updateUserData(user.uid, perfilForm)
+      await updateUserData(user.uid, { ...perfilForm, obraSocialId: perfilForm.obraSocialId || null })
       toast({ message: 'Datos guardados', type: 'success' })
     } catch {
       toast({ message: 'Error al guardar', type: 'error' })
@@ -304,8 +340,8 @@ export default function Reservar() {
 
   if (loading || turnoActivo === undefined) return <Spinner className="h-64" />
 
-  // Si el paciente está logueado pero le falta el teléfono, pedir antes de reservar
-  if (user && userData && !userData.telefono) {
+  // Perfil incompleto
+  if (user && userData && (!userData.telefono || !userData.obraSocialId)) {
     return (
       <div className="space-y-4">
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
@@ -315,42 +351,38 @@ export default function Reservar() {
             </div>
             <div>
               <h2 className="font-semibold text-gray-800">Antes de reservar</h2>
-              <p className="text-sm text-gray-500 mt-0.5">
-                El kinesiólogo se comunicará con vos para confirmar el turno
-              </p>
+              <p className="text-sm text-gray-500 mt-0.5">El kinesiólogo se comunicará con vos para confirmar el turno</p>
             </div>
           </div>
 
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800">
-            Necesitamos tu número de teléfono para que <strong>Lic. Miguel Carrizo</strong> pueda contactarte por WhatsApp y coordinar tu turno.
+            Estos datos son necesarios para confirmar tu turno y determinar el valor de la sesión según tu cobertura.
           </div>
 
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Nombre"
-                value={perfilForm.nombre}
-                onChange={e => setPerfilForm(p => ({ ...p, nombre: e.target.value }))}
-              />
-              <Input
-                label="Apellido"
-                value={perfilForm.apellido}
-                onChange={e => setPerfilForm(p => ({ ...p, apellido: e.target.value }))}
-              />
+              <Input label="Nombre" value={perfilForm.nombre} onChange={e => setPerfilForm(p => ({ ...p, nombre: e.target.value }))} />
+              <Input label="Apellido" value={perfilForm.apellido} onChange={e => setPerfilForm(p => ({ ...p, apellido: e.target.value }))} />
             </div>
-            <Input
-              label="Teléfono (WhatsApp) *"
-              placeholder="Ej: 3804123456"
-              value={perfilForm.telefono}
-              onChange={e => setPerfilForm(p => ({ ...p, telefono: e.target.value }))}
-              type="tel"
-            />
-            <p className="text-xs text-gray-400">Sin el 0 ni el 15. Solo el número local.</p>
+            <div>
+              <Input label="Teléfono (WhatsApp) *" placeholder="Ej: 3804123456" value={perfilForm.telefono} onChange={e => setPerfilForm(p => ({ ...p, telefono: e.target.value }))} type="tel" />
+              <p className="text-xs text-gray-400 mt-1">Sin el 0 ni el 15. Solo el número local.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Obra Social / Cobertura *</label>
+              <select
+                value={perfilForm.obraSocialId}
+                onChange={e => setPerfilForm(p => ({ ...p, obraSocialId: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0] bg-white"
+              >
+                <option value="">Seleccioná tu cobertura...</option>
+                <option value="">Particular (sin obra social)</option>
+                {obrasSociales.map(os => <option key={os.id} value={os.id}>{os.nombre}</option>)}
+              </select>
+            </div>
           </div>
 
-          <Button className="w-full" onClick={handleSavePerfil} loading={savingPerfil}>
-            Guardar y continuar
-          </Button>
+          <Button className="w-full" onClick={handleSavePerfil} loading={savingPerfil}>Guardar y continuar</Button>
         </div>
       </div>
     )
@@ -371,17 +403,14 @@ export default function Reservar() {
             <p className="font-semibold mb-1">Solo se permite 1 turno por paciente a la vez</p>
             <p className="text-xs text-amber-700">Para coordinar un nuevo turno, contactate con el especialista:</p>
             <a
-              href={`https://wa.me/543804362882?text=${encodeURIComponent('Hola! Necesito coordinar un nuevo turno.')}`}
-              target="_blank"
-              rel="noreferrer"
+              href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent('Hola! Necesito coordinar un nuevo turno.')}`}
+              target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-2 mt-2 bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
             >
               <MessageCircle className="w-4 h-4" /> Contactar al especialista
             </a>
           </div>
-          <Button variant="outline" onClick={() => navigate('/paciente/mis-turnos')}>
-            Ver mis turnos
-          </Button>
+          <Button variant="outline" onClick={() => navigate('/paciente/mis-turnos')}>Ver mis turnos</Button>
         </div>
       </div>
     )
@@ -389,9 +418,7 @@ export default function Reservar() {
 
   // Step 4 — Confirmación
   if (step === 4) {
-    const nombrePaciente = userData?.nombre
-      ? `${userData.nombre} ${userData.apellido || ''}`
-      : user?.displayName || ''
+    const nombrePaciente = userData?.nombre ? `${userData.nombre} ${userData.apellido || ''}` : user?.displayName || ''
     const fechaLabel = formatFechaLarga(new Date(fechaSeleccionada + 'T12:00:00'))
     const waUrl = buildWaUrl(nombrePaciente.trim(), fechaLabel, horaSeleccionada)
 
@@ -405,10 +432,9 @@ export default function Reservar() {
           <p className="text-sm text-gray-500 mt-2">
             <strong>{fechaLabel}</strong> · <strong>{horaSeleccionada}</strong>
           </p>
-          <p className="text-xs text-gray-400 mt-1">El profesional confirmará tu turno a la brevedad.</p>
+          <p className="text-xs text-gray-400 mt-1">El profesional confirmará tu turno a la brevedad. Revisá "Mis turnos" para ver el estado.</p>
         </div>
 
-        {/* Pedido médico por WhatsApp */}
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-left space-y-2">
           <p className="text-sm font-semibold text-green-800">Enviá tu pedido médico</p>
           <p className="text-xs text-green-700">Adjuntá la foto de tu pedido médico al mensaje de WhatsApp.</p>
@@ -418,7 +444,6 @@ export default function Reservar() {
           </a>
         </div>
 
-        {/* MercadoPago / transferencia */}
         {config?.mpAlias && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-left space-y-2">
             <div className="flex items-center gap-2">
@@ -436,16 +461,15 @@ export default function Reservar() {
           </div>
         )}
 
-        <Button variant="outline" onClick={() => navigate('/paciente/mis-turnos')}>
-          Ver mis turnos
-        </Button>
+        <Button variant="outline" onClick={() => navigate('/paciente/mis-turnos')}>Ver mis turnos</Button>
       </div>
     )
   }
 
+  const duracionMin = config?.duracionSesionMin || 30
+
   return (
     <div className="space-y-4">
-      {/* Recordatorio ropa cómoda */}
       <div className="bg-orange-500 text-white rounded-2xl px-5 py-4 flex items-center gap-3 shadow-sm">
         <span className="text-2xl shrink-0">👕</span>
         <p className="text-sm font-semibold leading-snug">
@@ -476,8 +500,6 @@ export default function Reservar() {
         {/* Step 1: Fecha */}
         {step === 1 && (
           <div className="space-y-4">
-
-            {/* Filtro mañana/tarde — centrado */}
             <div className="flex flex-col items-center gap-2">
               <p className="text-xs text-gray-400">Filtrar por horario</p>
               <div className="flex gap-2">
@@ -496,21 +518,22 @@ export default function Reservar() {
               </div>
             </div>
 
-            {/* Calendario */}
             <MesCalendar
               value={fechaSeleccionada}
               onChange={ds => { setFechaSeleccionada(ds); setHoraSeleccionada('') }}
               disponibilidad={disponibilidad}
               bloqueos={bloqueos}
               filtroHorario={filtroHorario}
+              ocupacion={ocupacion}
+              duracionMin={duracionMin}
             />
             <Button className="w-full" disabled={!fechaSeleccionada} onClick={() => setStep(2)}>
               Continuar
             </Button>
 
-            {/* Próximos turnos disponibles — acceso rápido */}
+            {/* Próximos turnos disponibles */}
             {!loading && (() => {
-              const proximos = getProximosSlots(disponibilidad, bloqueos, filtroHorario, config?.duracionSesionMin || 45, 3)
+              const proximos = getProximosSlots(disponibilidad, bloqueos, filtroHorario, duracionMin, 3)
               if (proximos.length === 0) return null
               return (
                 <div className="pt-2 border-t border-gray-100">
@@ -520,25 +543,18 @@ export default function Reservar() {
                   <div className="space-y-2">
                     {proximos.map((s, i) => {
                       const label = s.fechaDate.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
-                      const hora12 = (() => {
-                        const [h, m] = s.hora.split(':').map(Number)
-                        const ampm = h < 12 ? 'am' : 'pm'
-                        const h12 = h % 12 || 12
-                        return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
-                      })()
+                      const [h, m] = s.hora.split(':').map(Number)
+                      const ampm = h < 12 ? 'am' : 'pm'
+                      const h12 = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`
                       return (
                         <button
                           key={i}
-                          onClick={() => {
-                            setFechaSeleccionada(s.fecha)
-                            setHoraSeleccionada(s.hora)
-                            setStep(3)
-                          }}
+                          onClick={() => { setFechaSeleccionada(s.fecha); setHoraSeleccionada(s.hora); setStep(3) }}
                           className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-[#1565C0] hover:bg-blue-50 transition-colors text-left group"
                         >
                           <div>
                             <p className="text-sm font-medium text-gray-800 capitalize">{label}</p>
-                            <p className="text-xs text-gray-400">{hora12}</p>
+                            <p className="text-xs text-gray-400">{h12}</p>
                           </div>
                           <span className="text-xs text-[#1565C0] font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                             Reservar →
@@ -547,6 +563,9 @@ export default function Reservar() {
                       )
                     })}
                   </div>
+                  <p className="text-xs text-gray-400 text-center mt-2 flex items-center justify-center gap-1">
+                    <Info className="w-3 h-3" /> Sujeto a disponibilidad real al momento de confirmar
+                  </p>
                 </div>
               )
             })()}
@@ -585,14 +604,15 @@ export default function Reservar() {
 
             <div className="bg-blue-50 rounded-xl p-4 space-y-1 text-sm">
               <p><span className="text-gray-500">Fecha:</span> <strong>{formatFechaLarga(new Date(fechaSeleccionada + 'T12:00:00'))}</strong></p>
-              <p><span className="text-gray-500">Horario:</span> <strong>{horaSeleccionada} – {addMinutes(horaSeleccionada, config?.duracionSesionMin || 45)}</strong></p>
+              <p><span className="text-gray-500">Horario:</span> <strong>{horaSeleccionada} – {addMinutes(horaSeleccionada, duracionMin)}</strong></p>
               <p><span className="text-gray-500">Paciente:</span> <strong>{userData?.nombre ? `${userData.nombre} ${userData.apellido || ''}` : user?.displayName}</strong></p>
+              <p><span className="text-gray-500">Cancelación:</span> <strong>Hasta {config?.horasLimiteCancelacion || 24}hs antes</strong></p>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 space-y-2">
               <p className="font-medium">Recordá</p>
               <ul className="text-xs text-amber-700 space-y-1 list-none">
-                <li>📋 Luego de confirmar, te vamos a dar un botón para enviar el pedido médico por WhatsApp al <strong>3804362882</strong>.</li>
+                <li>📋 Después de confirmar, enviá el pedido médico por WhatsApp al <strong>3804362882</strong>.</li>
                 <li>⏰ Respetar el horario del turno (tolerancia máxima 10 minutos)</li>
                 <li>👕 Venir con ropa cómoda: remera, calza, jogging o ropa deportiva</li>
               </ul>
@@ -617,7 +637,9 @@ export default function Reservar() {
                 >
                   Iniciar sesión para confirmar
                 </button>
-                <p className="text-xs text-center text-gray-400">Necesitás una cuenta de Google para reservar</p>
+                <p className="text-xs text-center text-gray-400 flex items-center justify-center gap-1">
+                  <Info className="w-3 h-3" /> Tu selección de fecha y horario se preserva al iniciar sesión
+                </p>
               </div>
             )}
           </div>

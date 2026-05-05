@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ToastProvider } from './components/ui/Toast'
@@ -5,20 +6,20 @@ import { RequireAdmin, RequirePaciente } from './components/layout/ProtectedRout
 import { Spinner } from './components/ui/Spinner'
 import { ROLES } from './constants'
 
-import Login from './pages/auth/Login'
+const Login        = lazy(() => import('./pages/auth/Login'))
+const AdminLayout  = lazy(() => import('./components/layout/AdminLayout'))
+const Dashboard    = lazy(() => import('./pages/admin/Dashboard'))
+const Agenda       = lazy(() => import('./pages/admin/Agenda'))
+const Pacientes    = lazy(() => import('./pages/admin/Pacientes'))
+const Estadisticas = lazy(() => import('./pages/admin/Estadisticas'))
+const Configuracion= lazy(() => import('./pages/admin/Configuracion'))
+const PacienteLayout = lazy(() => import('./components/layout/PacienteLayout'))
+const Inicio       = lazy(() => import('./pages/paciente/Inicio'))
+const Reservar     = lazy(() => import('./pages/paciente/Reservar'))
+const MisTurnos    = lazy(() => import('./pages/paciente/MisTurnos'))
+const Perfil       = lazy(() => import('./pages/paciente/Perfil'))
 
-import AdminLayout from './components/layout/AdminLayout'
-import Dashboard from './pages/admin/Dashboard'
-import Agenda from './pages/admin/Agenda'
-import Pacientes from './pages/admin/Pacientes'
-import Estadisticas from './pages/admin/Estadisticas'
-import Configuracion from './pages/admin/Configuracion'
-
-import PacienteLayout from './components/layout/PacienteLayout'
-import Inicio from './pages/paciente/Inicio'
-import Reservar from './pages/paciente/Reservar'
-import MisTurnos from './pages/paciente/MisTurnos'
-import Perfil from './pages/paciente/Perfil'
+const PageLoader = <Spinner className="min-h-screen" />
 
 function RootRedirect() {
   const { user, userData, loading } = useAuth()
@@ -30,33 +31,30 @@ function RootRedirect() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<RootRedirect />} />
+    <Suspense fallback={PageLoader}>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/auth/login" element={<Login />} />
 
-      {/* Login con Google */}
-      <Route path="/auth/login" element={<Login />} />
+        <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
+          <Route index element={<Dashboard />} />
+          <Route path="agenda" element={<Agenda />} />
+          <Route path="pacientes" element={<Pacientes />} />
+          <Route path="estadisticas" element={<Estadisticas />} />
+          <Route path="configuracion" element={<Configuracion />} />
+        </Route>
 
-      {/* Admin */}
-      <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
-        <Route index element={<Dashboard />} />
-        <Route path="agenda" element={<Agenda />} />
-        <Route path="pacientes" element={<Pacientes />} />
-        <Route path="estadisticas" element={<Estadisticas />} />
-        <Route path="configuracion" element={<Configuracion />} />
-      </Route>
+        <Route path="/paciente" element={<Inicio />} />
 
-      {/* Paciente — public landing (anónimo puede ver) */}
-      <Route path="/paciente" element={<Inicio />} />
+        <Route path="/paciente" element={<PacienteLayout />}>
+          <Route path="reservar" element={<Reservar />} />
+          <Route path="mis-turnos" element={<RequirePaciente><MisTurnos /></RequirePaciente>} />
+          <Route path="perfil" element={<RequirePaciente><Perfil /></RequirePaciente>} />
+        </Route>
 
-      {/* Paciente — reservar es público (auth solo al confirmar), mis-turnos y perfil requieren login */}
-      <Route path="/paciente" element={<PacienteLayout />}>
-        <Route path="reservar" element={<Reservar />} />
-        <Route path="mis-turnos" element={<RequirePaciente><MisTurnos /></RequirePaciente>} />
-        <Route path="perfil" element={<RequirePaciente><Perfil /></RequirePaciente>} />
-      </Route>
-
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 

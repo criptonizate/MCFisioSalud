@@ -4,6 +4,25 @@ import {
   where, serverTimestamp,
 } from 'firebase/firestore'
 
+export async function getPacientesByIds(userIds) {
+  if (!userIds.length) return []
+  const map = {}
+  const chunks = []
+  for (let i = 0; i < userIds.length; i += 30) chunks.push(userIds.slice(i, i + 30))
+  await Promise.all(
+    chunks.map(async chunk => {
+      const [usersSnap, pacsSnap] = await Promise.all([
+        getDocs(query(collection(db, 'users'), where('__name__', 'in', chunk))),
+        getDocs(query(collection(db, 'pacientes'), where('userId', 'in', chunk))),
+      ])
+      const pacMap = {}
+      pacsSnap.docs.forEach(d => { pacMap[d.data().userId] = { pacienteId: d.id, ...d.data() } })
+      usersSnap.docs.forEach(d => { map[d.id] = { id: d.id, ...d.data(), clinica: pacMap[d.id] || null } })
+    })
+  )
+  return Object.values(map)
+}
+
 export async function getPacientes() {
   const snap = await getDocs(query(collection(db, 'users'), where('rol', '==', 'paciente')))
   const pacSnap = await getDocs(collection(db, 'pacientes'))

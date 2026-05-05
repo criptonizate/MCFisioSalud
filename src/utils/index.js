@@ -26,14 +26,17 @@ export function addMinutes(timeStr, minutes) {
   return `${hh}:${mm}`
 }
 
-export function generarSlots(franjas, duracionMin, ocupados = []) {
+export function generarSlots(franjas, duracionMin, conteoOcupados = {}) {
   const slots = []
   for (const franja of franjas) {
+    const capacidad = franja.capacidad ?? 1
     let current = franja.inicio
     while (current < franja.fin) {
       const fin = addMinutes(current, duracionMin)
-      if (fin <= franja.fin && !ocupados.includes(current)) {
-        slots.push(current)
+      if (fin <= franja.fin) {
+        const ocupados = conteoOcupados[current] ?? 0
+        const disponibles = capacidad - ocupados
+        if (disponibles > 0) slots.push({ hora: current, disponibles, capacidad })
       }
       current = fin
     }

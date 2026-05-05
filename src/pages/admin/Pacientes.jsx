@@ -273,7 +273,7 @@ export default function Pacientes() {
                     >
                       <div className="flex items-center gap-3">
                         {p.fotoUrl ? (
-                          <img src={p.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" />
+                          <img src={p.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" referrerPolicy="no-referrer" />
                         ) : (
                           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-[#1565C0] font-semibold text-sm shrink-0">
                             {p.nombre?.[0]}{p.apellido?.[0]}

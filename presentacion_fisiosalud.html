@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FisioSalud — Sistema de Turnos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #1e293b;
+      background: #f1f5f9;
+    }
+
+    /* ── PORTADA ── */
+    .portada {
+      position: relative;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 60px 40px 50px;
+      background-image: url('public/wallpaper-fisio.png');
+      background-size: cover;
+      background-position: center;
+      overflow: hidden;
+    }
+    .portada::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(21, 101, 192, 0.82);
+    }
+    .portada > * { position: relative; z-index: 1; }
+
+    .portada img {
+      height: 100px;
+      width: auto;
+      object-fit: contain;
+      background: white;
+      border-radius: 16px;
+      padding: 10px 18px;
+      margin-bottom: 24px;
+    }
+    .portada h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      line-height: 1.2;
+      margin-bottom: 10px;
+    }
+    .portada p {
+      font-size: 15px;
+      color: rgba(255,255,255,0.85);
+      max-width: 480px;
+    }
+    .portada .tag {
+      display: inline-block;
+      margin-top: 20px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 99px;
+    }
+
+    /* ── CONTENIDO ── */
+    .content {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 40px 24px 60px;
+    }
+
+    /* Frase principal */
+    .frase-principal {
+      background: #1565C0;
+      color: white;
+      border-radius: 18px;
+      padding: 28px 32px;
+      margin-bottom: 32px;
+      text-align: center;
+    }
+    .frase-principal p {
+      font-size: 19px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+    .frase-principal span {
+      font-size: 13px;
+      font-weight: 400;
+      opacity: 0.80;
+      display: block;
+      margin-top: 8px;
+    }
+
+    /* Secciones */
+    .seccion {
+      background: white;
+      border-radius: 16px;
+      padding: 28px 30px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .seccion h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1565C0;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .seccion h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 16px;
+      background: #1565C0;
+      border-radius: 2px;
+    }
+
+    /* Items de lista */
+    .items { display: flex; flex-direction: column; gap: 12px; }
+    .item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: #f8fafc;
+      border-radius: 12px;
+    }
+    .item-icon {
+      font-size: 20px;
+      line-height: 1;
+      flex-shrink: 0;
+      width: 32px;
+      text-align: center;
+    }
+    .item-text strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 2px;
+    }
+    .item-text p {
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    /* Grid de 2 columnas */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .grid-item {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .grid-item strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+    .grid-item p {
+      font-size: 12.5px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    /* Bloque verde — lo que suma */
+    .bloque-verde {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 16px;
+      padding: 28px 30px;
+      margin-bottom: 20px;
+    }
+    .bloque-verde h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #16a34a;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 16px;
+    }
+    .bloque-verde .items .item {
+      background: white;
+    }
+
+    /* Cierre */
+    .cierre {
+      background: #1565C0;
+      background-image: url('public/wallpaper-fisio.png');
+      background-size: cover;
+      background-position: center;
+      border-radius: 18px;
+      padding: 36px 32px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .cierre::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(21, 101, 192, 0.88);
+      border-radius: 18px;
+    }
+    .cierre > * { position: relative; z-index: 1; }
+    .cierre h2 {
+      font-size: 20px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 10px;
+    }
+    .cierre p {
+      font-size: 14px;
+      color: rgba(255,255,255,0.85);
+      max-width: 440px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 12px 24px 32px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    /* Print */
+    @media print {
+      body { background: white; }
+      .content { padding: 24px 20px; }
+      .portada { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .cierre  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .frase-principal { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .seccion h2::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .seccion, .bloque-verde { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PORTADA -->
+  <div class="portada">
+    <img src="public/Logo_fisiosalud.png" alt="FisioSalud" />
+    <h1>Tu consultorio, más organizado</h1>
+    <p>Sistema de reserva de turnos online · Lic. Miguel Carrizo<br>Rehabilitación Traumatológica y Deportiva</p>
+    <span class="tag">Sistema diseñado a medida · 2025</span>
+  </div>
+
+  <!-- CONTENIDO -->
+  <div class="content">
+
+    <!-- Frase principal -->
+    <div class="frase-principal">
+      <p>Los pacientes reservan turno solos.<br>Vos confirmás con un click y seguís trabajando.</p>
+      <span>Sin llamadas. Sin WhatsApps para coordinar horarios. Sin papel.</span>
+    </div>
+
+    <!-- Cómo funciona -->
+    <div class="seccion">
+      <h2>Cómo funciona</h2>
+      <div class="items">
+        <div class="item">
+          <div class="item-icon">📅</div>
+          <div class="item-text">
+            <strong>El paciente reserva desde su celular</strong>
+            <p>Entra a la web, elige día y horario libre, confirma. No necesita descargar nada ni crear una cuenta — entra con su cuenta de Google.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">✅</div>
+          <div class="item-text">
+            <strong>Vos confirmás o cancelás con un click</strong>
+            <p>En el panel de administrador ves todos los turnos pendientes. Confirmás, y el paciente lo ve actualizado en su celular en el momento.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">💬</div>
+          <div class="item-text">
+            <strong>WhatsApp cuando lo necesitás</strong>
+            <p>Desde la agenda podés mandarle un recordatorio al paciente con un click. El mensaje va pre-completado con su nombre, fecha y horario.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">🖨️</div>
+          <div class="item-text">
+            <strong>Agenda del día imprimible</strong>
+            <p>Si preferís papel, un click te genera la agenda del día lista para imprimir, con todos los pacientes y sus datos.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lo que te ahorra -->
+    <div class="seccion">
+      <h2>Lo que te ahorra todos los días</h2>
+      <div class="grid-2">
+        <div class="grid-item">
+          <strong>🚫 Cero llamadas para reservar</strong>
+          <p>El paciente ve los horarios disponibles y elige solo. A cualquier hora, sin necesitarte.</p>
+        </div>
+        <div class="grid-item">
+          <strong>🚫 Cero "¿a qué hora era?"</strong>
+          <p>Cada paciente tiene sus turnos en su celular, con el estado actualizado en tiempo real.</p>
+        </div>
+        <div class="grid-item">
+          <strong>🚫 Cero errores de agenda</strong>
+          <p>El sistema sabe cuántos cupos hay por horario y no permite sobrepasar la capacidad que vos configuraste.</p>
+        </div>
+        <div class="grid-item">
+          <strong>🚫 Cero coordinación manual</strong>
+          <p>Si un paciente cancela, puede pedir un nuevo turno solo. Si vos necesitás reprogramar, le mandás una propuesta y él acepta desde su celular.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tu panel de control -->
+    <div class="seccion">
+      <h2>Tu panel de control</h2>
+      <div class="items">
+        <div class="item">
+          <div class="item-icon">📊</div>
+          <div class="item-text">
+            <strong>Dashboard — resumen del día</strong>
+            <p>Turnos de hoy, cantidad de la semana, pendientes de confirmación y cancelaciones del mes. Se actualiza solo cada minuto.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">🗓️</div>
+          <div class="item-text">
+            <strong>Agenda semanal y vista del día</strong>
+            <p>Ves la semana completa de un vistazo — con cuántos cupos quedan por día. O cambiás a vista "Hoy" y ves la lista limpia con nombre completo, teléfono y estado de cada turno.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">👥</div>
+          <div class="item-text">
+            <strong>Pacientes</strong>
+            <p>Listado completo con datos personales, obra social, historial de sesiones y datos clínicos. Podés agregar pacientes manuales también.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">⚙️</div>
+          <div class="item-text">
+            <strong>Configuración total</strong>
+            <p>Vos definís los días y horarios de atención, cuántos pacientes por turno, la duración de la sesión y hasta los datos de pago por transferencia.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">📈</div>
+          <div class="item-text">
+            <strong>Estadísticas</strong>
+            <p>Gráficos de turnos por mes, tasa de asistencia, días con más demanda y distribución por estado. Para tomar decisiones con datos reales.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lo que suma -->
+    <div class="bloque-verde">
+      <h2>✦ Lo que suma sin que tengas que hacer nada</h2>
+      <div class="items">
+        <div class="item">
+          <div class="item-icon">📱</div>
+          <div class="item-text">
+            <strong>Se instala como app en el celular</strong>
+            <p>El paciente puede agregar FisioSalud a su pantalla de inicio como si fuera de la App Store. Abre directo, sin buscar la web.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">🏥</div>
+          <div class="item-text">
+            <strong>Obras sociales integradas</strong>
+            <p>Al reservar, el paciente declara su cobertura. Vos siempre sabés de antemano si viene por obra social o como particular.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">👕</div>
+          <div class="item-text">
+            <strong>Instrucciones automáticas al paciente</strong>
+            <p>Al reservar, el sistema le recuerda traer ropa cómoda, el pedido médico, y respetar el horario. Sin que vos tengas que decirlo cada vez.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-icon">💳</div>
+          <div class="item-text">
+            <strong>Cobro por transferencia integrado</strong>
+            <p>Si configurás tu alias de MercadoPago, el paciente lo ve al confirmar el turno y tiene un botón directo para mandarte el comprobante.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cierre -->
+    <div class="cierre">
+      <h2>Lo que vas a notar desde el primer día</h2>
+      <p>Menos interrupciones mientras trabajás. Los pacientes se organizan solos. Llegás al consultorio sabiendo exactamente quién viene, a qué hora, y si trajo el pedido médico.<br><br>
+      <strong style="color:white;">Tu tiempo vale. Este sistema te lo devuelve.</strong></p>
+    </div>
+
+  </div>
+
+  <footer>
+    FisioSalud · Lic. Miguel Carrizo · Rehabilitación Traumatológica y Deportiva · Avellaneda 112, La Rioja
+  </footer>
+
+</body>
+</html>

@@ -67,6 +67,7 @@ export default function PacienteLayout() {
                     alt={user.displayName || ''}
                     className="w-7 h-7 rounded-full border border-gray-200 ml-1"
                     title={user.displayName || ''}
+                    referrerPolicy="no-referrer"
                   />
                 )}
                 <button

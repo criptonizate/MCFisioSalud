@@ -101,8 +101,23 @@ export async function getSlotsByFecha(dateStr, disponibilidad, duracionMin, bloq
   if (bloqueoDia) return []
 
   const turnos = await getTurnosByFecha(new Date(dateStr + 'T12:00:00'))
-  const ocupados = turnos.filter(t => !['cancelado'].includes(t.estado)).map(t => t.horaInicio)
-  return generarSlots(dispDia.franjas, duracionMin, ocupados)
+  const conteoOcupados = {}
+  turnos.filter(t => t.estado !== 'cancelado').forEach(t => {
+    conteoOcupados[t.horaInicio] = (conteoOcupados[t.horaInicio] ?? 0) + 1
+  })
+  return generarSlots(dispDia.franjas, duracionMin, conteoOcupados)
+}
+
+export async function getOcupacionRango(startDate, endDate) {
+  const turnos = await getTurnosRango(startDate, endDate)
+  const result = {}
+  turnos.filter(t => t.estado !== 'cancelado').forEach(t => {
+    const fd = t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)
+    const ds = `${fd.getFullYear()}-${String(fd.getMonth()+1).padStart(2,'0')}-${String(fd.getDate()).padStart(2,'0')}`
+    if (!result[ds]) result[ds] = {}
+    result[ds][t.horaInicio] = (result[ds][t.horaInicio] ?? 0) + 1
+  })
+  return result
 }
 
 export async function getTurnosPendientes() {

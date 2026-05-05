@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useState } from 'react'
 import { REGLAS_NEGOCIO, CONFIG_DEFAULT } from '../../constants'
 import { Button } from '../../components/ui/Button'
 import { MapPin, Phone, MessageCircle, LogIn, Calendar, UserCheck, FileText, CheckCircle } from 'lucide-react'
@@ -11,8 +12,15 @@ const MAPS_URL = 'https://www.google.com/maps/search/?api=1&query=Avellaneda+112
 const ICONOS_REGLAS = ['📋', '🏥', '👕', '1️⃣', '📅', '⏰']
 
 export default function Inicio() {
-  const { user } = useAuth()
+  const { user, loginWithGoogle } = useAuth()
   const navigate = useNavigate()
+  const [loggingIn, setLoggingIn] = useState(false)
+
+  async function handleLogin() {
+    setLoggingIn(true)
+    try { await loginWithGoogle() } catch {}
+    finally { setLoggingIn(false) }
+  }
 
   return (
     <>
@@ -50,7 +58,7 @@ export default function Inicio() {
           {user && (
             <div className="mt-4 flex items-center justify-center gap-2">
               {user.photoURL && (
-                <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full border border-blue-200" />
+                <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full border border-blue-200" referrerPolicy="no-referrer" />
               )}
               <span className="text-sm text-gray-500">
                 Hola, <strong className="text-gray-700">{user.displayName?.split(' ')[0]}</strong>
@@ -126,11 +134,27 @@ export default function Inicio() {
                 <Calendar className="w-5 h-5" />
                 Reservar turno
               </Button>
+
               {!user && (
-                <p className="text-xs text-gray-400 flex items-center justify-center gap-1">
-                  <LogIn className="w-3 h-3" />
-                  Al confirmar te pediremos ingresar con Google
-                </p>
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-gray-100" />
+                    <span className="text-xs text-gray-400">o</span>
+                    <div className="flex-1 h-px bg-gray-100" />
+                  </div>
+                  <button
+                    onClick={handleLogin}
+                    disabled={loggingIn}
+                    className="w-full flex items-center justify-center gap-2.5 border border-gray-200 hover:bg-gray-50 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
+                  >
+                    <img
+                      src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+                      alt="Google"
+                      className="w-4 h-4"
+                    />
+                    {loggingIn ? 'Ingresando...' : 'Ingresar con Google'}
+                  </button>
+                </>
               )}
             </div>
 

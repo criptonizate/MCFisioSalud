@@ -84,7 +84,7 @@ export default function Configuracion() {
       ...prev,
       [dia]: {
         ...prev[dia],
-        franjas: [...(prev[dia]?.franjas || []), { inicio: '08:00', fin: '12:00' }]
+        franjas: [...(prev[dia]?.franjas || []), { inicio: '08:00', fin: '12:00', capacidad: 3 }]
       }
     }))
   }
@@ -192,7 +192,7 @@ export default function Configuracion() {
                       {d.activo && (
                         <div className="space-y-2 pl-7">
                           {(d.franjas || []).map((f, idx) => (
-                            <div key={idx} className="flex items-center gap-2">
+                            <div key={idx} className="flex items-center gap-2 flex-wrap">
                               <input
                                 type="time"
                                 value={f.inicio}
@@ -205,6 +205,15 @@ export default function Configuracion() {
                                 value={f.fin}
                                 onChange={e => updateFranja(dia, idx, 'fin', e.target.value)}
                                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]"
+                              />
+                              <span className="text-gray-400 text-xs">cupos:</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="20"
+                                value={f.capacidad ?? 1}
+                                onChange={e => updateFranja(dia, idx, 'capacidad', Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-14 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1565C0]"
                               />
                               <button onClick={() => removeFranja(dia, idx)} className="text-red-400 hover:text-red-600">
                                 <Trash2 className="w-4 h-4" />
@@ -230,7 +239,14 @@ export default function Configuracion() {
         <Card>
           <CardHeader><h2 className="font-semibold text-gray-800">Parámetros operativos</h2></CardHeader>
           <CardBody className="space-y-4">
-            <Input label="Duración de sesión (minutos)" type="number" min="15" step="15" value={ajustes.duracionSesionMin || 45} onChange={e => setAjustes(p => ({ ...p, duracionSesionMin: parseInt(e.target.value) }))} />
+            <div>
+              <Input label="Duración de sesión (minutos)" type="number" min="15" step="15" value={ajustes.duracionSesionMin || 45} onChange={e => setAjustes(p => ({ ...p, duracionSesionMin: parseInt(e.target.value) }))} />
+              {ajustes.duracionSesionMin !== config?.duracionSesionMin && (
+                <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⚠️ Este cambio aplica sólo a turnos nuevos. Los turnos ya confirmados mantienen su horario de fin original.
+                </p>
+              )}
+            </div>
             <Input label="Tolerancia máxima de espera (minutos)" type="number" min="0" value={ajustes.toleranciaMinutos || 10} onChange={e => setAjustes(p => ({ ...p, toleranciaMinutos: parseInt(e.target.value) }))} />
             <Input label="Límite de cancelación (horas antes del turno)" type="number" min="1" value={ajustes.horasLimiteCancelacion || 24} onChange={e => setAjustes(p => ({ ...p, horasLimiteCancelacion: parseInt(e.target.value) }))} />
             <Button onClick={handleSaveAjustes} loading={saving}>Guardar</Button>

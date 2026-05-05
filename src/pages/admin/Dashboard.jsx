@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Users, Calendar, Clock, XCircle, MessageCircle, CheckCircle, ChevronRight, Shield } from 'lucide-react'
+import { Users, Calendar, Clock, XCircle, MessageCircle, CheckCircle, ChevronRight, Shield, RefreshCw } from 'lucide-react'
 import { Card, CardBody } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -63,6 +63,11 @@ export default function Dashboard() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    const interval = setInterval(() => { load() }, 60000)
+    return () => clearInterval(interval)
+  }, [load])
+
   async function abrirPendientes() {
     setModalOpen(true)
     setPendientesLoading(true)
@@ -100,9 +105,17 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-1">{formatFechaLarga(new Date())}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+          <p className="text-gray-500 text-sm mt-1">{formatFechaLarga(new Date())}</p>
+        </div>
+        <button
+          onClick={load}
+          className="flex items-center gap-1.5 text-sm text-[#1565C0] hover:underline shrink-0 mt-1"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+        </button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -139,7 +152,7 @@ export default function Dashboard() {
               <div key={t.id} className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {t.paciente?.fotoUrl ? (
-                    <img src={t.paciente.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" />
+                    <img src={t.paciente.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" referrerPolicy="no-referrer" />
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-[#1565C0] font-semibold text-sm shrink-0">
                       {t.paciente?.nombre?.[0] ?? '?'}{t.paciente?.apellido?.[0] ?? ''}
@@ -185,7 +198,7 @@ export default function Dashboard() {
                   {/* Header paciente */}
                   <div className="bg-gray-50 px-4 py-3 flex items-center gap-3">
                     {pac?.fotoUrl ? (
-                      <img src={pac.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" />
+                      <img src={pac.fotoUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 shrink-0" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-[#1565C0] font-semibold shrink-0">
                         {pac?.nombre?.[0] ?? '?'}{pac?.apellido?.[0] ?? ''}

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Trash2, MessageCircle, Printer, RefreshCw } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, MessageCircle, Printer, RefreshCw, Search, CalendarDays, LayoutGrid, Clock, Phone } from 'lucide-react'
 import { Card, CardBody } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -8,11 +8,15 @@ import { Input } from '../../components/ui/Input'
 import { Textarea } from '../../components/ui/Textarea'
 import { Spinner } from '../../components/ui/Spinner'
 import { useToast } from '../../components/ui/Toast'
-import { getTurnosRango, getTurnosByFecha, actualizarTurno, proponerReprogramacion, getTurnosCanceladosPorPaciente } from '../../services/turnos.service'
+import {
+  getTurnosRango, getTurnosByFecha, actualizarTurno,
+  proponerReprogramacion, getTurnosCanceladosPorPaciente, getSlotsByFecha,
+} from '../../services/turnos.service'
 import { getBloqueos, addBloqueo, deleteBloqueo } from '../../services/disponibilidad.service'
-import { getPacienteByUserId } from '../../services/pacientes.service'
+import { getPacientesByIds } from '../../services/pacientes.service'
 import { useConfig } from '../../hooks/useConfig'
-import { formatFecha, formatFechaLarga, addMinutes } from '../../utils'
+import { useDisponibilidad } from '../../hooks/useDisponibilidad'
+import { generarSlots, formatFecha, formatFechaLarga, addMinutes, getDiaSemana } from '../../utils'
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
@@ -60,26 +64,62 @@ function imprimirReporte(turnos, fecha, pacientesMap) {
   setTimeout(() => win.print(), 600)
 }
 
+// Slot picker simple para el modal de propuesta (sin filtros mañana/tarde)
+function AdminSlotPicker({ slots, value, onChange }) {
+  if (!slots.length) return <p className="text-sm text-gray-400 text-center py-4">Sin cupos disponibles para esta fecha</p>
+  return (
+    <div className="grid grid-cols-4 gap-2">
+      {slots.map(slot => (
+        <button
+          key={slot.hora}
+          onClick={() => onChange(slot.hora)}
+          className={`py-2 rounded-xl border text-sm font-medium transition-colors flex flex-col items-center gap-0.5
+            ${value === slot.hora ? 'bg-[#1565C0] border-[#1565C0] text-white' : 'border-gray-200 text-gray-700 hover:border-[#1565C0] hover:text-[#1565C0]'}`}
+        >
+          <span>{slot.hora}</span>
+          {slot.capacidad > 1 && (
+            <span className={`text-[10px] font-normal ${value === slot.hora ? 'text-blue-100' : 'text-gray-400'}`}>
+              {slot.disponibles} lugar{slot.disponibles !== 1 ? 'es' : ''}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function Agenda() {
   const toast = useToast()
   const { config } = useConfig()
+  const { disponibilidad, bloqueos: dispBloqueos } = useDisponibilidad()
+
+  const [viewMode, setViewMode] = useState('week') // 'week' | 'day'
   const [weekRef, setWeekRef] = useState(new Date())
   const [turnos, setTurnos] = useState([])
   const [pacientes, setPacientes] = useState({})
   const [bloqueos, setBloqueos] = useState([])
   const [canceladosPaciente, setCanceladosPaciente] = useState([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+
   const [selectedTurno, setSelectedTurno] = useState(null)
   const [notasAdmin, setNotasAdmin] = useState('')
   const [savingStatus, setSavingStatus] = useState(false)
+  const [pendingEstado, setPendingEstado] = useState(null) // { estado, label }
+
   const [bloqueoModal, setBloqueoModal] = useState(false)
   const [bloqueoForm, setBloqueoForm] = useState({ fecha: '', motivo: '' })
+
   const [propuestaModal, setPropuestaModal] = useState(null)
   const [propuestaForm, setPropuestaForm] = useState({ fecha: '', horaInicio: '' })
+  const [propuestaSlots, setPropuestaSlots] = useState([])
+  const [propuestaSlotsLoading, setPropuestaSlotsLoading] = useState(false)
   const [savingPropuesta, setSavingPropuesta] = useState(false)
+
   const [printDate, setPrintDate] = useState(dateStr(new Date()))
 
   const dates = getWeekDates(weekRef)
+  const duracionMin = config?.duracionSesionMin || 30
 
   async function load() {
     setLoading(true)
@@ -89,29 +129,57 @@ export default function Agenda() {
       getTurnosCanceladosPorPaciente(),
     ])
     setTurnos(ts); setBloqueos(bl); setCanceladosPaciente(cancelados)
+
+    // Batch patient reads (#21)
     const ids = [...new Set([...ts.map(t => t.userId), ...cancelados.map(t => t.userId)])]
-    const map = {}
-    await Promise.all(ids.map(async id => {
-      const p = await getPacienteByUserId(id).catch(() => null)
-      if (p) map[id] = p
-    }))
-    setPacientes(map)
+    const pacientesList = await getPacientesByIds(ids)
+    setPacientes(Object.fromEntries(pacientesList.map(p => [p.id, p])))
     setLoading(false)
   }
 
   useEffect(() => { load() }, [weekRef])
 
+  // Load slots for propuesta when date changes (#5, #19)
+  useEffect(() => {
+    if (!propuestaForm.fecha || !config || !Object.keys(disponibilidad).length) return
+    setPropuestaSlotsLoading(true)
+    setPropuestaForm(p => ({ ...p, horaInicio: '' }))
+    getSlotsByFecha(propuestaForm.fecha, disponibilidad, duracionMin, dispBloqueos)
+      .then(s => { setPropuestaSlots(s); setPropuestaSlotsLoading(false) })
+  }, [propuestaForm.fecha, disponibilidad, config, dispBloqueos])
+
   function turnosParaDia(date) {
     const ds = dateStr(date)
     return turnos.filter(t => {
       const fd = t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)
-      return dateStr(fd) === ds
+      if (dateStr(fd) !== ds) return false
+      if (!search) return true
+      const p = pacientes[t.userId]
+      const nombre = `${p?.nombre || ''} ${p?.apellido || ''}`.toLowerCase()
+      return nombre.includes(search.toLowerCase())
     })
   }
 
   function isDiaBlocked(date) {
     const ds = dateStr(date)
-    return bloqueos.some(b => { const bd = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha); return dateStr(bd) === ds && b.tipo === 'dia_completo' })
+    return bloqueos.some(b => {
+      const bd = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha)
+      return dateStr(bd) === ds && b.tipo === 'dia_completo'
+    })
+  }
+
+  // Cupos totales vs ocupados por día (#18)
+  function cuposInfo(date) {
+    const ds = dateStr(date)
+    const dia = getDiaSemana(new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12))
+    const dispDia = disponibilidad[dia]
+    if (!dispDia?.activo || !dispDia?.franjas?.length) return null
+    const totalCapacidad = generarSlots(dispDia.franjas, duracionMin, {}).reduce((sum, s) => sum + s.capacidad, 0)
+    const ocupados = turnos.filter(t => {
+      const fd = t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)
+      return dateStr(fd) === ds && t.estado !== 'cancelado'
+    }).length
+    return { total: totalCapacidad, ocupados, libres: Math.max(0, totalCapacidad - ocupados) }
   }
 
   function openTurno(t) { setSelectedTurno(t); setNotasAdmin(t.notasAdmin || '') }
@@ -120,8 +188,8 @@ export default function Agenda() {
     setSavingStatus(true)
     try {
       await actualizarTurno(selectedTurno.id, { estado, notasAdmin })
-      toast({ message: `Turno ${estado}`, type: 'success' })
-      setSelectedTurno(null); load()
+      toast({ message: `Turno marcado como ${estado}`, type: 'success' })
+      setSelectedTurno(null); setPendingEstado(null); load()
     } catch { toast({ message: 'Error al actualizar', type: 'error' }) }
     finally { setSavingStatus(false) }
   }
@@ -140,11 +208,11 @@ export default function Agenda() {
 
   async function handlePropuesta() {
     if (!propuestaForm.fecha || !propuestaForm.horaInicio) {
-      toast({ message: 'Completá fecha y horario', type: 'error' }); return
+      toast({ message: 'Elegí una fecha y un horario', type: 'error' }); return
     }
     setSavingPropuesta(true)
     try {
-      const horaFin = addMinutes(propuestaForm.horaInicio, config?.duracionSesionMin || 45)
+      const horaFin = addMinutes(propuestaForm.horaInicio, duracionMin)
       await proponerReprogramacion(propuestaModal.id, {
         userId: propuestaModal.userId,
         pacienteId: propuestaModal.pacienteId,
@@ -164,27 +232,76 @@ export default function Agenda() {
     imprimirReporte(ts.filter(t => t.estado !== 'cancelado'), printDate, pacientes)
   }
 
+  // Vista del día actual — turnos de hoy ordenados (#16)
+  const hoyStr = dateStr(new Date())
+  const turnosHoy = useMemo(() => {
+    return turnos
+      .filter(t => {
+        const fd = t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)
+        if (dateStr(fd) !== hoyStr) return false
+        if (!search) return true
+        const p = pacientes[t.userId]
+        return `${p?.nombre || ''} ${p?.apellido || ''}`.toLowerCase().includes(search.toLowerCase())
+      })
+      .sort((a, b) => (a.horaInicio || '').localeCompare(b.horaInicio || ''))
+  }, [turnos, pacientes, search, hoyStr])
+
   const pac = selectedTurno ? pacientes[selectedTurno.userId] : null
 
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-800">Agenda</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Imprimir reporte */}
+          {/* Vista toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
+            <button
+              onClick={() => setViewMode('week')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${viewMode === 'week' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <LayoutGrid className="w-4 h-4" /> Semana
+            </button>
+            <button
+              onClick={() => setViewMode('day')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${viewMode === 'day' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <CalendarDays className="w-4 h-4" /> Hoy
+            </button>
+          </div>
+
+          {/* Imprimir */}
           <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
             <Printer className="w-4 h-4 text-gray-400" />
             <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)}
               className="text-sm border-0 outline-none text-gray-700" />
             <button onClick={handlePrint} className="text-sm text-[#1565C0] hover:underline font-medium">Imprimir</button>
           </div>
+
           <Button variant="outline" size="sm" onClick={() => setBloqueoModal(true)}>
             <Plus className="w-4 h-4" /> Bloquear día
           </Button>
         </div>
       </div>
 
-      {/* Cancelados por pacientes — pendientes de reprogramación */}
+      {/* Buscar paciente (#30) */}
+      <div className="relative max-w-xs">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Buscar paciente..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+        )}
+      </div>
+
+      {/* Cancelados por pacientes */}
       {canceladosPaciente.length > 0 && (
         <Card>
           <div className="px-6 py-3 border-b border-gray-100 flex items-center gap-2">
@@ -203,7 +320,7 @@ export default function Agenda() {
                       <p className="font-medium text-sm text-gray-800">{p?.nombre} {p?.apellido}</p>
                       <p className="text-xs text-gray-500">{fd ? formatFecha(fd) : ''} · {t.horaInicio}hs</p>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => { setPropuestaModal(t); setPropuestaForm({ fecha: '', horaInicio: '' }) }}>
+                    <Button size="sm" variant="outline" onClick={() => { setPropuestaModal(t); setPropuestaForm({ fecha: '', horaInicio: '' }); setPropuestaSlots([]) }}>
                       <RefreshCw className="w-3.5 h-3.5" /> Reprogramar
                     </Button>
                   </div>
@@ -235,54 +352,128 @@ export default function Agenda() {
         </Card>
       )}
 
-      {/* Week navigation */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => setWeekRef(d => { const nd = new Date(d); nd.setDate(nd.getDate()-7); return nd })} className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200">
-          <ChevronLeft className="w-5 h-5 text-gray-600" />
-        </button>
-        <span className="text-sm font-medium text-gray-700">{formatFecha(dates[0])} – {formatFecha(dates[5])}</span>
-        <button onClick={() => setWeekRef(d => { const nd = new Date(d); nd.setDate(nd.getDate()+7); return nd })} className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200">
-          <ChevronRight className="w-5 h-5 text-gray-600" />
-        </button>
-        <button onClick={() => setWeekRef(new Date())} className="text-sm text-[#1565C0] hover:underline ml-2">Hoy</button>
-      </div>
+      {/* ====== VISTA SEMANA ====== */}
+      {viewMode === 'week' && (
+        <>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setWeekRef(d => { const nd = new Date(d); nd.setDate(nd.getDate()-7); return nd })} className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200">
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            <span className="text-sm font-medium text-gray-700">{formatFecha(dates[0])} – {formatFecha(dates[5])}</span>
+            <button onClick={() => setWeekRef(d => { const nd = new Date(d); nd.setDate(nd.getDate()+7); return nd })} className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200">
+              <ChevronRight className="w-5 h-5 text-gray-600" />
+            </button>
+            <button onClick={() => setWeekRef(new Date())} className="text-sm text-[#1565C0] hover:underline ml-2">Hoy</button>
+          </div>
 
-      {loading ? <Spinner className="h-48" /> : (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          {dates.map((date, i) => {
-            const ts = turnosParaDia(date)
-            const blocked = isDiaBlocked(date)
-            const isToday = dateStr(date) === dateStr(new Date())
-            return (
-              <div key={i} className={`rounded-xl border min-h-[120px] ${blocked ? 'bg-red-50 border-red-200' : isToday ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}>
-                <div className={`px-3 py-2 text-center border-b ${blocked ? 'border-red-200' : isToday ? 'border-blue-300' : 'border-gray-100'}`}>
-                  <p className="text-xs text-gray-400">{DIAS[i]}</p>
-                  <p className={`text-lg font-bold ${isToday ? 'text-[#1565C0]' : 'text-gray-700'}`}>{date.getDate()}</p>
-                </div>
-                <div className="p-2 flex flex-col gap-1">
-                  {blocked && <p className="text-xs text-red-500 text-center">Bloqueado</p>}
-                  {ts.map(t => {
-                    const p = pacientes[t.userId]
-                    return (
-                      <button key={t.id} onClick={() => openTurno(t)}
-                        className="w-full text-left rounded-lg p-1.5 bg-white border border-gray-200 hover:border-[#1565C0] transition-colors shadow-sm">
-                        <p className="text-xs font-medium text-gray-700 truncate">{p?.nombre} {p?.apellido?.[0]}.</p>
-                        <p className="text-xs text-gray-400">{t.horaInicio}</p>
-                        <Badge estado={t.estado} className="text-[10px] mt-0.5 py-0" />
-                      </button>
-                    )
-                  })}
-                  {ts.length === 0 && !blocked && <p className="text-xs text-gray-300 text-center pt-2">—</p>}
-                </div>
-              </div>
-            )
-          })}
+          {loading ? <Spinner className="h-48" /> : (
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {dates.map((date, i) => {
+                const ts = turnosParaDia(date)
+                const blocked = isDiaBlocked(date)
+                const isToday = dateStr(date) === hoyStr
+                const cupos = !blocked ? cuposInfo(date) : null
+                return (
+                  <div key={i} className={`rounded-xl border min-h-[120px] ${blocked ? 'bg-red-50 border-red-200' : isToday ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}>
+                    <div className={`px-3 py-2 text-center border-b ${blocked ? 'border-red-200' : isToday ? 'border-blue-300' : 'border-gray-100'}`}>
+                      <p className="text-xs text-gray-400">{DIAS[i]}</p>
+                      <p className={`text-lg font-bold ${isToday ? 'text-[#1565C0]' : 'text-gray-700'}`}>{date.getDate()}</p>
+                      {/* Cupos info (#18) */}
+                      {cupos && (
+                        <p className={`text-[10px] font-medium mt-0.5 ${cupos.libres === 0 ? 'text-red-400' : 'text-green-600'}`}>
+                          {cupos.libres}/{cupos.total} libres
+                        </p>
+                      )}
+                    </div>
+                    <div className="p-2 flex flex-col gap-1">
+                      {blocked && <p className="text-xs text-red-500 text-center">Bloqueado</p>}
+                      {ts.map(t => {
+                        const p = pacientes[t.userId]
+                        return (
+                          <button key={t.id} onClick={() => openTurno(t)}
+                            className="w-full text-left rounded-lg p-1.5 bg-white border border-gray-200 hover:border-[#1565C0] transition-colors shadow-sm">
+                            <p className="text-xs font-medium text-gray-700 truncate">{p?.nombre} {p?.apellido?.[0]}.</p>
+                            <p className="text-xs text-gray-400">{t.horaInicio}</p>
+                            <Badge estado={t.estado} className="text-[10px] mt-0.5 py-0" />
+                          </button>
+                        )
+                      })}
+                      {ts.length === 0 && !blocked && <p className="text-xs text-gray-300 text-center pt-2">—</p>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ====== VISTA DÍA — Timeline (#16) ====== */}
+      {viewMode === 'day' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-5 h-5 text-[#1565C0]" />
+            <h2 className="font-semibold text-gray-700 capitalize">
+              {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </h2>
+            <span className="ml-auto text-sm text-gray-400">{turnosHoy.length} turno{turnosHoy.length !== 1 ? 's' : ''}</span>
+          </div>
+
+          {loading ? <Spinner className="h-48" /> : turnosHoy.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
+              <p className="text-gray-400">Sin turnos para hoy{search ? ' (filtro activo)' : ''}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {turnosHoy.map(t => {
+                const p = pacientes[t.userId]
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => openTurno(t)}
+                    className="w-full bg-white border border-gray-100 rounded-xl px-5 py-4 flex items-center gap-4 hover:border-[#1565C0] transition-colors shadow-sm text-left"
+                  >
+                    <div className="w-16 shrink-0 text-center">
+                      <p className="text-lg font-bold text-[#1565C0]">{t.horaInicio}</p>
+                      <p className="text-xs text-gray-400">– {t.horaFin}</p>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800">{p?.nombre} {p?.apellido}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {p?.telefono && (
+                          <a
+                            href={`tel:${p.telefono}`}
+                            onClick={e => e.stopPropagation()}
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-[#1565C0]"
+                          >
+                            <Phone className="w-3 h-3" />{p.telefono}
+                          </a>
+                        )}
+                        {p?.telefono && (
+                          <a
+                            href={`https://wa.me/54${p.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${p?.nombre}! Te recordamos tu turno en FisioSalud hoy a las ${t.horaInicio}hs. ¡Te esperamos!`)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            className="flex items-center gap-1 text-xs text-green-600 hover:underline"
+                          >
+                            <MessageCircle className="w-3 h-3" /> WA
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <Badge estado={t.estado} />
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* Turno detail modal */}
-      <Modal open={!!selectedTurno} onClose={() => setSelectedTurno(null)} title="Detalle del turno" size="md">
-        {selectedTurno && (
+      <Modal open={!!selectedTurno} onClose={() => { setSelectedTurno(null); setPendingEstado(null) }} title="Detalle del turno" size="md">
+        {selectedTurno && !pendingEstado && (
           <div className="space-y-4">
             <div className="bg-gray-50 rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-3">
@@ -291,7 +482,7 @@ export default function Agenda() {
                 </div>
                 <div>
                   <p className="font-semibold text-gray-800">{pac?.nombre} {pac?.apellido}</p>
-                  <p className="text-sm text-gray-500">DNI: {pac?.dni} · {pac?.telefono}</p>
+                  <p className="text-sm text-gray-500">DNI: {pac?.dni || '—'} · {pac?.telefono || '—'}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -318,13 +509,47 @@ export default function Agenda() {
             </div>
             <Textarea label="Notas internas" placeholder="Observaciones del turno..." value={notasAdmin} onChange={e => setNotasAdmin(e.target.value)} rows={2} />
             <div className="flex flex-wrap gap-2 pt-1">
-              {selectedTurno.estado === 'pendiente' && <Button size="sm" onClick={() => cambiarEstado('confirmado')} loading={savingStatus}>Confirmar</Button>}
+              {selectedTurno.estado === 'pendiente' && (
+                <Button size="sm" onClick={() => cambiarEstado('confirmado')} loading={savingStatus}>Confirmar</Button>
+              )}
               {['pendiente', 'confirmado'].includes(selectedTurno.estado) && (
                 <>
-                  <Button size="sm" variant="secondary" onClick={() => cambiarEstado('completado')} loading={savingStatus}>Completado</Button>
-                  <Button size="sm" variant="danger" onClick={() => cambiarEstado('cancelado')} loading={savingStatus}>Cancelar</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setPendingEstado({ estado: 'completado', label: 'Marcar como completado' })} loading={savingStatus}>
+                    Completado
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => setPendingEstado({ estado: 'cancelado', label: 'Cancelar este turno' })} loading={savingStatus}>
+                    Cancelar
+                  </Button>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Confirmación de acción crítica (#13, #14) */}
+        {selectedTurno && pendingEstado && (
+          <div className="space-y-4">
+            <div className={`rounded-xl p-4 text-sm ${pendingEstado.estado === 'cancelado' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'}`}>
+              <p className="font-semibold mb-1">{pendingEstado.label}</p>
+              <p>
+                Turno de <strong>{pac?.nombre} {pac?.apellido}</strong> el{' '}
+                <strong>{selectedTurno.fecha ? formatFecha(selectedTurno.fecha.toDate()) : ''}</strong> a las{' '}
+                <strong>{selectedTurno.horaInicio}hs</strong>.
+              </p>
+              <p className="text-xs mt-1 opacity-70">Esta acción notificará al paciente en "Mis Turnos".</p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={pendingEstado.estado === 'cancelado' ? 'danger' : 'secondary'}
+                loading={savingStatus}
+                onClick={() => cambiarEstado(pendingEstado.estado)}
+                className="flex-1"
+              >
+                Sí, confirmar
+              </Button>
+              <Button variant="secondary" onClick={() => setPendingEstado(null)} className="flex-1">
+                Volver
+              </Button>
             </div>
           </div>
         )}
@@ -342,19 +567,50 @@ export default function Agenda() {
         </div>
       </Modal>
 
-      {/* Propuesta de reprogramación modal */}
-      <Modal open={!!propuestaModal} onClose={() => setPropuestaModal(null)} title="Proponer nuevo horario" size="sm">
+      {/* Propuesta de reprogramación con slot picker (#5, #19) */}
+      <Modal open={!!propuestaModal} onClose={() => setPropuestaModal(null)} title="Proponer nuevo horario" size="md">
         {propuestaModal && (
           <div className="space-y-4">
             <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800">
               <p className="font-medium">{pacientes[propuestaModal.userId]?.nombre} {pacientes[propuestaModal.userId]?.apellido}</p>
-              <p className="text-blue-600 text-xs mt-0.5">Turno original: {propuestaModal.fecha ? formatFecha(propuestaModal.fecha.toDate()) : ''} · {propuestaModal.horaInicio}hs</p>
+              <p className="text-blue-600 text-xs mt-0.5">
+                Turno original: {propuestaModal.fecha ? formatFecha(propuestaModal.fecha.toDate ? propuestaModal.fecha.toDate() : new Date(propuestaModal.fecha)) : ''} · {propuestaModal.horaInicio}hs
+              </p>
             </div>
-            <Input label="Nueva fecha" type="date" value={propuestaForm.fecha} onChange={e => setPropuestaForm(p => ({ ...p, fecha: e.target.value }))} />
-            <Input label="Nuevo horario" type="time" value={propuestaForm.horaInicio} onChange={e => setPropuestaForm(p => ({ ...p, horaInicio: e.target.value }))} />
+
+            <Input
+              label="Nueva fecha"
+              type="date"
+              value={propuestaForm.fecha}
+              onChange={e => setPropuestaForm(p => ({ ...p, fecha: e.target.value }))}
+            />
+
+            {propuestaForm.fecha && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Nuevo horario</p>
+                {propuestaSlotsLoading ? (
+                  <Spinner className="h-16" />
+                ) : (
+                  <AdminSlotPicker
+                    slots={propuestaSlots}
+                    value={propuestaForm.horaInicio}
+                    onChange={h => setPropuestaForm(p => ({ ...p, horaInicio: h }))}
+                  />
+                )}
+              </div>
+            )}
+
+            {propuestaForm.horaInicio && (
+              <div className="bg-green-50 border border-green-100 rounded-lg px-4 py-2 text-sm text-green-800">
+                Propuesta: <strong>{propuestaForm.fecha}</strong> a las <strong>{propuestaForm.horaInicio}hs</strong>
+              </div>
+            )}
+
             <p className="text-xs text-gray-400">El paciente verá esta propuesta en "Mis turnos" y podrá aceptarla o rechazarla.</p>
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={handlePropuesta} loading={savingPropuesta}>Enviar propuesta</Button>
+              <Button className="flex-1" onClick={handlePropuesta} loading={savingPropuesta} disabled={!propuestaForm.horaInicio}>
+                Enviar propuesta
+              </Button>
               <Button variant="secondary" className="flex-1" onClick={() => setPropuestaModal(null)}>Cancelar</Button>
             </div>
           </div>
