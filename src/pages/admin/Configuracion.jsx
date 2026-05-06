@@ -10,7 +10,7 @@ import { useToast } from '../../components/ui/Toast'
 import { DIAS_SEMANA, DIAS_LABELS } from '../../constants'
 import { Plus, Trash2, CreditCard } from 'lucide-react'
 
-const TABS = ['Perfil', 'Disponibilidad', 'Configuración', 'Pagos']
+const TABS = ['Perfil', 'Disponibilidad', 'Configuración', 'Pagos', 'Automatización']
 
 export default function Configuracion() {
   const toast = useToast()
@@ -19,6 +19,7 @@ export default function Configuracion() {
   const [perfil, setPerfil] = useState({})
   const [ajustes, setAjustes] = useState({})
   const [pagos, setPagos] = useState({})
+  const [auto, setAuto] = useState({})
   const [saving, setSaving] = useState(false)
   const [disponibilidad, setDisponibilidad] = useState({})
   const [dispLoading, setDispLoading] = useState(true)
@@ -35,11 +36,16 @@ export default function Configuracion() {
       setAjustes({
         toleranciaMinutos: config.toleranciaMinutos || 10,
         horasLimiteCancelacion: config.horasLimiteCancelacion || 24,
-        duracionSesionMin: config.duracionSesionMin || 45,
+        duracionSesionMin: config.duracionSesionMin || 30,
+        precioPorSesion: config.precioPorSesion || 0,
       })
       setPagos({
         mpAlias: config.mpAlias || '',
         mpTitular: config.mpTitular || '',
+      })
+      setAuto({
+        autoConfirmar: config.autoConfirmar || false,
+        mensajeRecordatorio: config.mensajeRecordatorio || '¡Hola {{nombre}}! Te recordamos tu turno en FisioSalud el {{fecha}} a las {{hora}}hs. ¡Te esperamos!',
       })
     }
   }, [config])
@@ -249,6 +255,18 @@ export default function Configuracion() {
             </div>
             <Input label="Tolerancia máxima de espera (minutos)" type="number" min="0" value={ajustes.toleranciaMinutos || 10} onChange={e => setAjustes(p => ({ ...p, toleranciaMinutos: parseInt(e.target.value) }))} />
             <Input label="Límite de cancelación (horas antes del turno)" type="number" min="1" value={ajustes.horasLimiteCancelacion || 24} onChange={e => setAjustes(p => ({ ...p, horasLimiteCancelacion: parseInt(e.target.value) }))} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Precio por sesión ($)</label>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={ajustes.precioPorSesion || 0}
+                onChange={e => setAjustes(p => ({ ...p, precioPorSesion: parseInt(e.target.value) || 0 }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]"
+              />
+              <p className="text-xs text-gray-400 mt-1">Usado para calcular ingresos estimados en Estadísticas. No se muestra a los pacientes.</p>
+            </div>
             <Button onClick={handleSaveAjustes} loading={saving}>Guardar</Button>
           </CardBody>
         </Card>
@@ -291,6 +309,66 @@ export default function Configuracion() {
             </Button>
           </CardBody>
         </Card>
+      )}
+      {/* Automatización */}
+      {activeTab === 4 && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader><h2 className="font-semibold text-gray-800">Confirmación automática</h2></CardHeader>
+            <CardBody className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Confirmar turnos automáticamente</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Los nuevos turnos quedan en estado "confirmado" sin necesitar tu aprobación manual.</p>
+                </div>
+                <button
+                  onClick={() => setAuto(p => ({ ...p, autoConfirmar: !p.autoConfirmar }))}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${auto.autoConfirmar ? 'bg-[#1565C0]' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${auto.autoConfirmar ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              {auto.autoConfirmar && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                  ⚠️ Con esta opción activa, cualquier paciente queda confirmado sin revisión previa. Desactivala si querés controlar cada turno.
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader><h2 className="font-semibold text-gray-800">Mensaje de recordatorio WhatsApp</h2></CardHeader>
+            <CardBody className="space-y-3">
+              <p className="text-xs text-gray-400">
+                Usá <code className="bg-gray-100 px-1 rounded">{'{{nombre}}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{{fecha}}'}</code> y <code className="bg-gray-100 px-1 rounded">{'{{hora}}'}</code> como variables.
+              </p>
+              <Textarea
+                label="Mensaje"
+                value={auto.mensajeRecordatorio || ''}
+                onChange={e => setAuto(p => ({ ...p, mensajeRecordatorio: e.target.value }))}
+                rows={3}
+                placeholder="¡Hola {{nombre}}! Te recordamos tu turno..."
+              />
+              {auto.mensajeRecordatorio && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-800">
+                  <p className="font-medium mb-1">Vista previa:</p>
+                  <p>{auto.mensajeRecordatorio
+                    .replace('{{nombre}}', 'María')
+                    .replace('{{fecha}}', 'lunes 12 de mayo')
+                    .replace('{{hora}}', '09:00')}</p>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Button onClick={async () => {
+            setSaving(true)
+            await saveConfig(auto).finally(() => setSaving(false))
+            toast({ message: 'Configuración guardada', type: 'success' })
+          }} loading={saving}>
+            Guardar automatización
+          </Button>
+        </div>
       )}
     </div>
   )

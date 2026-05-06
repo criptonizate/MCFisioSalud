@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, Plus, Trash2, ChevronRight, Edit2, FileText, RefreshCw } from 'lucide-react'
+import { Search, Plus, Trash2, ChevronRight, Edit2, FileText, RefreshCw, Printer } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
@@ -264,6 +264,58 @@ export default function Pacientes() {
     }
   }
 
+  function imprimirFicha(paciente, turnos, osMap) {
+    const osNombre = paciente.obraSocialId ? (osMap[paciente.obraSocialId] || 'Otra') : 'Particular'
+    const rows = turnos.slice(0, 20).map(t => {
+      const fd = t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)
+      const estadoColor = { completado:'#dcfce7', confirmado:'#dbeafe', pendiente:'#fef9c3', cancelado:'#fee2e2', propuesto:'#f3e8ff' }
+      return `<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:8px 12px">${fd.toLocaleDateString('es-AR')}</td>
+        <td style="padding:8px 12px">${t.horaInicio}</td>
+        <td style="padding:8px 12px"><span style="background:${estadoColor[t.estado]||'#f1f5f9'};padding:2px 8px;border-radius:99px;font-size:11px">${t.estado}</span></td>
+        <td style="padding:8px 12px;color:#64748b;font-size:12px">${t.notasEvolucion || t.notasAdmin || '—'}</td>
+      </tr>`
+    }).join('')
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Ficha — ${paciente.nombre} ${paciente.apellido}</title>
+    <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;padding:32px}
+    .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #1565C0}
+    h1{font-size:20px;color:#1565C0;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+    .campo p:first-child{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+    .campo p:last-child{font-size:14px;font-weight:600;color:#1e293b}
+    .section-title{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin:16px 0 8px}
+    .diagnostico{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:13px;color:#374151;line-height:1.5}
+    table{width:100%;border-collapse:collapse}th{padding:8px 12px;text-align:left;background:#1565C0;color:white;font-size:12px}
+    .footer{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;text-align:center}
+    @media print{body{padding:16px}}</style></head><body>
+    <div class="header">
+      <div><h1>FisioSalud — Ficha del Paciente</h1><p style="font-size:12px;color:#64748b;margin-top:4px">Lic. Miguel Carrizo · Rehabilitación Traumatológica y Deportiva</p></div>
+      <div style="text-align:right;font-size:12px;color:#64748b">Generado el ${new Date().toLocaleDateString('es-AR')}</div>
+    </div>
+    <div class="grid">
+      <div class="campo"><p>Nombre completo</p><p>${paciente.nombre} ${paciente.apellido}</p></div>
+      <div class="campo"><p>DNI</p><p>${paciente.dni || '—'}</p></div>
+      <div class="campo"><p>Teléfono</p><p>${paciente.telefono || '—'}</p></div>
+      <div class="campo"><p>Email</p><p>${paciente.email || '—'}</p></div>
+      <div class="campo"><p>Fecha de nacimiento</p><p>${paciente.fechaNacimiento || '—'}</p></div>
+      <div class="campo"><p>Obra Social</p><p>${osNombre}</p></div>
+    </div>
+    <div class="section-title">Datos clínicos</div>
+    <div class="grid">
+      <div class="campo"><p>Sesiones indicadas</p><p>${paciente.clinica?.sesionesIndicadas || 0}</p></div>
+      <div class="campo"><p>Sesiones completadas</p><p>${paciente.clinica?.sesionesCompletadas || 0}</p></div>
+    </div>
+    ${paciente.clinica?.diagnostico ? `<div class="section-title">Diagnóstico</div><div class="diagnostico">${paciente.clinica.diagnostico}</div>` : ''}
+    ${paciente.clinica?.notas ? `<div class="section-title">Notas clínicas</div><div class="diagnostico">${paciente.clinica.notas}</div>` : ''}
+    <div class="section-title">Historial de turnos (últimos ${Math.min(turnos.length, 20)})</div>
+    <table><thead><tr><th>Fecha</th><th>Horario</th><th>Estado</th><th>Notas</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="4" style="padding:12px;text-align:center;color:#94a3b8">Sin turnos registrados</td></tr>'}</tbody></table>
+    <div class="footer">FisioSalud · Avellaneda 112, La Rioja · 3804362882</div>
+    </body></html>`
+    const win = window.open('', '_blank', 'width=900,height=700')
+    win.document.write(html); win.document.close()
+    setTimeout(() => win.print(), 600)
+  }
+
   const osMap = Object.fromEntries(obrasSociales.map(o => [o.id, o.nombre]))
 
   return (
@@ -469,36 +521,40 @@ export default function Pacientes() {
               ) : (
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {turnos.map(t => (
-                    <div key={t.id} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-4 py-2 gap-2">
-                      <div className="min-w-0">
-                        <span className="font-medium">
-                          {t.fecha ? formatFecha(t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)) : ''}
-                        </span>
-                        <span className="text-gray-400 ml-2">{t.horaInicio}</span>
+                    <div key={t.id} className="text-sm bg-gray-50 rounded-lg px-4 py-2 gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-medium">
+                            {t.fecha ? formatFecha(t.fecha?.toDate ? t.fecha.toDate() : new Date(t.fecha)) : ''}
+                          </span>
+                          <span className="text-gray-400 ml-2">{t.horaInicio}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge estado={t.estado} />
+                          {t.estado !== 'propuesto' && (
+                            <button
+                              onClick={() => {
+                                setReprogramarTurno(t)
+                                setReprFecha(''); setReprHora(''); setReprSlots([])
+                              }}
+                              className="flex items-center gap-1 text-xs text-[#1565C0] hover:underline font-medium shrink-0"
+                            >
+                              <RefreshCw className="w-3 h-3" /> Reprogramar
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge estado={t.estado} />
-                        {t.estado !== 'propuesto' && (
-                          <button
-                            onClick={() => {
-                              setReprogramarTurno(t)
-                              setReprFecha(''); setReprHora(''); setReprSlots([])
-                            }}
-                            className="flex items-center gap-1 text-xs text-[#1565C0] hover:underline font-medium shrink-0"
-                            title="Proponer nuevo turno"
-                          >
-                            <RefreshCw className="w-3 h-3" /> Reprogramar
-                          </button>
-                        )}
-                      </div>
+                      {t.notasEvolucion && (
+                        <p className="text-xs text-gray-500 italic mt-1 pl-0.5">📋 {t.notasEvolucion}</p>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-              <div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100 flex-wrap gap-2">
+              <div className="flex items-center gap-3">
                 {!confirmDelete ? (
                   <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-400 hover:text-red-600 hover:underline">
                     Eliminar paciente
@@ -511,7 +567,15 @@ export default function Pacientes() {
                   </div>
                 )}
               </div>
-              <Button onClick={handleSave} loading={saving}>Guardar cambios</Button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => imprimirFicha(selected, turnos, osMap)}
+                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#1565C0] border border-gray-200 hover:border-[#1565C0] rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  <Printer className="w-4 h-4" /> Imprimir ficha
+                </button>
+                <Button onClick={handleSave} loading={saving}>Guardar cambios</Button>
+              </div>
             </div>
           </div>
         )}

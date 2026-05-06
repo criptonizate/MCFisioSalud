@@ -27,14 +27,14 @@ export default function Inicio() {
       <div className="min-h-screen flex flex-col">
 
         {/* Hero — fondo blanco */}
-        <div className="bg-white px-4 pt-10 pb-8 text-center border-b border-gray-100">
+        <div className="bg-white px-4 pt-5 pb-5 text-center border-b border-gray-100">
           <img
             src="/Logo_fisiosalud.png"
             alt="FisioSalud"
-            className="h-56 w-auto object-contain mx-auto mb-4"
+            className="w-[70%] max-w-xs h-auto object-contain mx-auto mb-2"
           />
-          <h1 className="text-2xl font-bold text-[#1565C0] mb-1">Lic. Miguel Carrizo</h1>
-          <p className="text-gray-500 text-sm mb-5">Rehabilitación Traumatológica y Deportiva</p>
+          <h1 className="text-2xl font-bold text-[#1565C0] mb-0.5">Lic. Miguel Carrizo</h1>
+          <p className="text-gray-500 text-sm mb-3">Rehabilitación Traumatológica y Deportiva</p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-sm">
             <a

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Users, Calendar, Clock, XCircle, MessageCircle, CheckCircle, ChevronRight, Shield, RefreshCw } from 'lucide-react'
+import { Users, Calendar, Clock, XCircle, MessageCircle, CheckCircle, ChevronRight, Shield, RefreshCw, Bell, Trash2 } from 'lucide-react'
 import { Card, CardBody } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -8,6 +8,7 @@ import { Spinner } from '../../components/ui/Spinner'
 import { useToast } from '../../components/ui/Toast'
 import { getMetricasDashboard, getTurnosPendientes, getTurnosProximos, actualizarTurno } from '../../services/turnos.service'
 import { getPacienteByUserId } from '../../services/pacientes.service'
+import { getListaEspera, notificarListaEspera, eliminarListaEspera } from '../../services/listaEspera.service'
 import { getObrasSociales } from '../../services/obrasSociales.service'
 import { formatHora, formatFechaLarga, formatFecha } from '../../utils'
 import { WA_ADMIN } from '../../constants'
@@ -41,6 +42,8 @@ export default function Dashboard() {
   const [turnosDetalle, setTurnosDetalle] = useState([])
   const [turnosProximos, setTurnosProximos] = useState([])
   const [loading, setLoading] = useState(true)
+  const [listaEspera, setListaEspera] = useState([])
+  const [listaModal, setListaModal] = useState(false)
 
   // Modal pendientes
   const [modalOpen, setModalOpen] = useState(false)
@@ -67,6 +70,8 @@ export default function Dashboard() {
     ])
     setTurnosDetalle(detalle)
     setTurnosProximos(proximosDetalle)
+    const lista = await getListaEspera().catch(() => [])
+    setListaEspera(lista)
     setLoading(false)
   }, [])
 
@@ -144,6 +149,19 @@ export default function Dashboard() {
             {metricas.turnosPendientes} turno{metricas.turnosPendientes > 1 ? 's' : ''} pendiente{metricas.turnosPendientes > 1 ? 's' : ''} de confirmación — ver y gestionar
           </p>
           <ChevronRight className="w-4 h-4 text-yellow-500 shrink-0" />
+        </button>
+      )}
+
+      {listaEspera.length > 0 && (
+        <button
+          onClick={() => setListaModal(true)}
+          className="w-full bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl p-4 flex items-center gap-3 transition-colors text-left"
+        >
+          <Bell className="w-5 h-5 text-purple-600 shrink-0" />
+          <p className="text-sm text-purple-800 font-medium flex-1">
+            {listaEspera.length} paciente{listaEspera.length > 1 ? 's' : ''} en lista de espera — ver y contactar
+          </p>
+          <ChevronRight className="w-4 h-4 text-purple-400 shrink-0" />
         </button>
       )}
 
@@ -228,6 +246,44 @@ export default function Dashboard() {
           </div>
         )}
       </Card>
+
+      {/* Modal lista de espera */}
+      <Modal open={listaModal} onClose={() => setListaModal(false)} title="Lista de espera" size="md">
+        <div className="space-y-3">
+          {listaEspera.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">Sin pacientes en espera</p>
+          ) : listaEspera.map(p => {
+            const waUrl = p.telefono
+              ? `https://wa.me/54${p.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${p.nombre}! Te escribimos de FisioSalud. Hay un turno disponible para vos. ¿Te interesa reservar?`)}`
+              : null
+            return (
+              <div key={p.id} className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl px-4 py-3">
+                <div>
+                  <p className="font-medium text-sm text-gray-800">{p.nombre} {p.apellido}</p>
+                  <p className="text-xs text-gray-400">{p.telefono || p.email || '—'}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {waUrl && (
+                    <a href={waUrl} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1 text-xs text-green-600 border border-green-200 hover:bg-green-50 rounded-lg px-2 py-1.5 transition-colors"
+                      onClick={() => notificarListaEspera(p.id).then(() => setListaEspera(prev => prev.filter(x => x.id !== p.id)))}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" /> Avisar
+                    </a>
+                  )}
+                  <button
+                    onClick={() => eliminarListaEspera(p.id).then(() => setListaEspera(prev => prev.filter(x => x.id !== p.id)))}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Eliminar de la lista"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Modal>
 
       {/* Modal turnos pendientes */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Turnos pendientes de confirmación" size="lg">

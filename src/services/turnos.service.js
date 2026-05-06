@@ -4,6 +4,7 @@ import {
   getDocs, serverTimestamp, Timestamp,
 } from 'firebase/firestore'
 import { generarSlots, getDiaSemana } from '../utils'
+import { getFranjasBloqueadas, isSlotBloqueado } from './disponibilidad.service'
 
 function startOfDay(date) {
   const d = new Date(date); d.setHours(0, 0, 0, 0)
@@ -14,12 +15,12 @@ function endOfDay(date) {
   return Timestamp.fromDate(d)
 }
 
-export async function crearTurno({ userId, pacienteId, fecha, horaInicio, horaFin, pedidoMedicoUrl, notasPaciente }) {
+export async function crearTurno({ userId, pacienteId, fecha, horaInicio, horaFin, pedidoMedicoUrl, notasPaciente, estado = 'pendiente' }) {
   return addDoc(collection(db, 'turnos'), {
     userId, pacienteId,
     fecha: Timestamp.fromDate(new Date(fecha + 'T00:00:00')),
     horaInicio, horaFin,
-    estado: 'pendiente',
+    estado,
     pedidoMedicoUrl: pedidoMedicoUrl || '',
     notasAdmin: '', notasPaciente: notasPaciente || '',
     canceladoPor: null, propuestoPor: null, reprogramadoDe: null,
@@ -105,7 +106,11 @@ export async function getSlotsByFecha(dateStr, disponibilidad, duracionMin, bloq
   turnos.filter(t => t.estado !== 'cancelado').forEach(t => {
     conteoOcupados[t.horaInicio] = (conteoOcupados[t.horaInicio] ?? 0) + 1
   })
-  return generarSlots(dispDia.franjas, duracionMin, conteoOcupados)
+  const franjasBloqueadas = getFranjasBloqueadas(dateStr, bloqueos)
+  const todos = generarSlots(dispDia.franjas, duracionMin, conteoOcupados)
+  return franjasBloqueadas.length > 0
+    ? todos.filter(s => !isSlotBloqueado(s.hora, franjasBloqueadas))
+    : todos
 }
 
 export async function getTurnosProximos(limit = 5) {

@@ -53,3 +53,15 @@ export function isFechaBlocked(dateStr, bloqueos) {
     return bdStr === dateStr && b.tipo === 'dia_completo'
   })
 }
+
+export function getFranjasBloqueadas(dateStr, bloqueos) {
+  return bloqueos.filter(b => {
+    const bd = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha)
+    const bdStr = `${bd.getFullYear()}-${String(bd.getMonth()+1).padStart(2,'0')}-${String(bd.getDate()).padStart(2,'0')}`
+    return bdStr === dateStr && b.tipo === 'franja' && b.franjaInicio && b.franjaFin
+  })
+}
+
+export function isSlotBloqueado(hora, franjasBloqueadas) {
+  return franjasBloqueadas.some(b => hora >= b.franjaInicio && hora < b.franjaFin)
+}

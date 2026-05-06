@@ -7,11 +7,12 @@ import { Button } from '../../components/ui/Button'
 import { Textarea } from '../../components/ui/Textarea'
 import { Spinner } from '../../components/ui/Spinner'
 import { crearTurno, getTurnoActivoPaciente, getSlotsByFecha, getOcupacionRango } from '../../services/turnos.service'
+import { unirseListaEspera } from '../../services/listaEspera.service'
 import { isFechaBlocked } from '../../services/disponibilidad.service'
 import { updateUserData } from '../../services/pacientes.service'
 import { getObrasSociales } from '../../services/obrasSociales.service'
 import { addMinutes, getDiaSemana, formatFechaLarga, generarSlots } from '../../utils'
-import { ChevronLeft, ChevronRight, CheckCircle, AlertCircle, MessageCircle, CreditCard, Phone, Info } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle, AlertCircle, MessageCircle, CreditCard, Phone, Info, Bell } from 'lucide-react'
 import { WA_ADMIN as WA_NUMBER } from '../../constants'
 import { Input } from '../../components/ui/Input'
 
@@ -231,6 +232,8 @@ export default function Reservar() {
   const [notas, setNotas] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [turnoActivo, setTurnoActivo] = useState(undefined)
+  const [listaEsperaLoading, setListaEsperaLoading] = useState(false)
+  const [enListaEspera, setEnListaEspera] = useState(false)
   const [ocupacion, setOcupacion] = useState({})
 
   // Perfil incompleto
@@ -303,6 +306,7 @@ export default function Reservar() {
       const existente = await getTurnoActivoPaciente(user.uid)
       if (existente) { toast({ message: 'Ya tenés un turno activo', type: 'error' }); return }
       const horaFin = addMinutes(horaSeleccionada, config?.duracionSesionMin || 30)
+      const estadoInicial = config?.autoConfirmar ? 'confirmado' : 'pendiente'
       await crearTurno({
         userId: user.uid,
         pacienteId: user.uid,
@@ -311,12 +315,32 @@ export default function Reservar() {
         horaFin,
         pedidoMedicoUrl: '',
         notasPaciente: notas,
+        estado: estadoInicial,
       })
       setStep(4)
     } catch {
       toast({ message: 'Error al crear el turno', type: 'error' })
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleListaEspera() {
+    if (!user) { handleIrALogin(); return }
+    setListaEsperaLoading(true)
+    try {
+      const { yaEstaba } = await unirseListaEspera(user.uid, {
+        nombre: userData?.nombre || user.displayName || '',
+        apellido: userData?.apellido || '',
+        telefono: userData?.telefono || '',
+        email: user.email || '',
+      })
+      setEnListaEspera(true)
+      toast({ message: yaEstaba ? 'Ya estás en la lista de espera' : '¡Listo! Te avisamos cuando haya un turno disponible', type: 'success' })
+    } catch {
+      toast({ message: 'Error al unirte a la lista', type: 'error' })
+    } finally {
+      setListaEsperaLoading(false)
     }
   }
 
@@ -569,6 +593,29 @@ export default function Reservar() {
                 </div>
               )
             })()}
+
+            {/* Lista de espera */}
+            {!enListaEspera ? (
+              <div className="border border-dashed border-gray-300 rounded-xl p-4 text-center space-y-2">
+                <Bell className="w-5 h-5 text-gray-400 mx-auto" />
+                <p className="text-sm text-gray-600 font-medium">¿No encontrás horario?</p>
+                <p className="text-xs text-gray-400">Anotate y te avisamos cuando haya un turno disponible.</p>
+                <button
+                  onClick={handleListaEspera}
+                  disabled={listaEsperaLoading}
+                  className="text-sm text-[#1565C0] hover:underline font-medium disabled:opacity-50"
+                >
+                  {listaEsperaLoading ? 'Guardando...' : 'Anotarme a la lista de espera →'}
+                </button>
+              </div>
+            ) : (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                <p className="text-sm text-green-700 font-medium">Estás en la lista de espera</p>
+                <p className="text-xs text-green-600">Te contactaremos cuando haya disponibilidad.</p>
+              </div>
+            )}
+
           </div>
         )}
 

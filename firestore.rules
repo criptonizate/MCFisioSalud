@@ -63,5 +63,13 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isAdmin();
     }
+
+    // Lista de espera: paciente crea la suya, admin gestiona.
+    match /listaEspera/{docId} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
   }
 }

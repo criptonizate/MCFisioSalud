@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Trash2, MessageCircle, Printer, RefreshCw, Search, CalendarDays, LayoutGrid, Clock, Phone } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, MessageCircle, Printer, RefreshCw, Search, CalendarDays, LayoutGrid, Clock, Phone, Star } from 'lucide-react'
+import { FERIADOS_ARGENTINA_2025 } from '../../constants'
+import { getConfig } from '../../services/config.service'
 import { Card, CardBody } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -104,11 +106,13 @@ export default function Agenda() {
 
   const [selectedTurno, setSelectedTurno] = useState(null)
   const [notasAdmin, setNotasAdmin] = useState('')
+  const [notasEvolucion, setNotasEvolucion] = useState('')
   const [savingStatus, setSavingStatus] = useState(false)
-  const [pendingEstado, setPendingEstado] = useState(null) // { estado, label }
+  const [pendingEstado, setPendingEstado] = useState(null)
+  const [mensajeRecordatorio, setMensajeRecordatorio] = useState('')
 
   const [bloqueoModal, setBloqueoModal] = useState(false)
-  const [bloqueoForm, setBloqueoForm] = useState({ fecha: '', motivo: '' })
+  const [bloqueoForm, setBloqueoForm] = useState({ fecha: '', motivo: '', tipo: 'dia_completo', franjaInicio: '', franjaFin: '' })
 
   const [propuestaModal, setPropuestaModal] = useState(null)
   const [propuestaForm, setPropuestaForm] = useState({ fecha: '', horaInicio: '' })
@@ -120,6 +124,10 @@ export default function Agenda() {
 
   const dates = getWeekDates(weekRef)
   const duracionMin = config?.duracionSesionMin || 30
+
+  useEffect(() => {
+    getConfig().then(c => { if (c?.mensajeRecordatorio) setMensajeRecordatorio(c.mensajeRecordatorio) })
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -182,23 +190,40 @@ export default function Agenda() {
     return { total: totalCapacidad, ocupados, libres: Math.max(0, totalCapacidad - ocupados) }
   }
 
-  function openTurno(t) { setSelectedTurno(t); setNotasAdmin(t.notasAdmin || '') }
+  function openTurno(t) { setSelectedTurno(t); setNotasAdmin(t.notasAdmin || ''); setNotasEvolucion(''); setPendingEstado(null) }
 
   async function cambiarEstado(estado) {
     setSavingStatus(true)
     try {
-      await actualizarTurno(selectedTurno.id, { estado, notasAdmin })
+      const extra = estado === 'completado' && notasEvolucion.trim()
+        ? { notasEvolucion: notasEvolucion.trim() }
+        : {}
+      await actualizarTurno(selectedTurno.id, { estado, notasAdmin, ...extra })
       toast({ message: `Turno marcado como ${estado}`, type: 'success' })
-      setSelectedTurno(null); setPendingEstado(null); load()
+      setSelectedTurno(null); setPendingEstado(null); setNotasEvolucion(''); load()
     } catch { toast({ message: 'Error al actualizar', type: 'error' }) }
     finally { setSavingStatus(false) }
   }
 
   async function handleAddBloqueo() {
     if (!bloqueoForm.fecha) { toast({ message: 'Seleccioná una fecha', type: 'error' }); return }
-    await addBloqueo({ ...bloqueoForm, tipo: 'dia_completo' })
-    toast({ message: 'Día bloqueado', type: 'success' })
-    setBloqueoModal(false); setBloqueoForm({ fecha: '', motivo: '' }); load()
+    if (bloqueoForm.tipo === 'franja' && (!bloqueoForm.franjaInicio || !bloqueoForm.franjaFin)) {
+      toast({ message: 'Ingresá el horario de inicio y fin de la franja', type: 'error' }); return
+    }
+    await addBloqueo(bloqueoForm)
+    toast({ message: bloqueoForm.tipo === 'franja' ? 'Franja bloqueada' : 'Día bloqueado', type: 'success' })
+    setBloqueoModal(false)
+    setBloqueoForm({ fecha: '', motivo: '', tipo: 'dia_completo', franjaInicio: '', franjaFin: '' })
+    load()
+  }
+
+  async function cargarFeriados() {
+    const hoy = new Date(); hoy.setHours(0,0,0,0)
+    const pendientes = FERIADOS_ARGENTINA_2025.filter(f => new Date(f.fecha + 'T12:00:00') >= hoy)
+    if (pendientes.length === 0) { toast({ message: 'No hay feriados pendientes para cargar', type: 'info' }); return }
+    await Promise.all(pendientes.map(f => addBloqueo({ fecha: f.fecha, motivo: f.motivo, tipo: 'dia_completo' })))
+    toast({ message: `${pendientes.length} feriados cargados`, type: 'success' })
+    load()
   }
 
   async function handleDeleteBloqueo(id) {
@@ -281,7 +306,10 @@ export default function Agenda() {
           </div>
 
           <Button variant="outline" size="sm" onClick={() => setBloqueoModal(true)}>
-            <Plus className="w-4 h-4" /> Bloquear día
+            <Plus className="w-4 h-4" /> Bloquear
+          </Button>
+          <Button variant="outline" size="sm" onClick={cargarFeriados}>
+            <Star className="w-4 h-4" /> Feriados 2025
           </Button>
         </div>
       </div>
@@ -451,7 +479,7 @@ export default function Agenda() {
                         )}
                         {p?.telefono && (
                           <a
-                            href={`https://wa.me/54${p.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${p?.nombre}! Te recordamos tu turno en FisioSalud hoy a las ${t.horaInicio}hs. ¡Te esperamos!`)}`}
+                            href={`https://wa.me/54${p.telefono.replace(/\D/g,'')}?text=${encodeURIComponent((mensajeRecordatorio || '¡Hola {{nombre}}! Tu turno en FisioSalud es hoy a las {{hora}}hs. ¡Te esperamos!').replace('{{nombre}}', p?.nombre || '').replace('{{fecha}}', 'hoy').replace('{{hora}}', t.horaInicio))}`}
                             target="_blank"
                             rel="noreferrer"
                             onClick={e => e.stopPropagation()}
@@ -500,7 +528,7 @@ export default function Agenda() {
                   </a>
                 )}
                 {pac?.telefono && (
-                  <a href={`https://wa.me/54${pac.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${pac?.nombre}! Te recordamos tu turno en FisioSalud el ${selectedTurno.fecha ? formatFecha(selectedTurno.fecha.toDate()) : ''} a las ${selectedTurno.horaInicio}hs. ¡Te esperamos! 💪`)}`}
+                  <a href={`https://wa.me/54${pac.telefono.replace(/\D/g,'')}?text=${encodeURIComponent((mensajeRecordatorio || '¡Hola {{nombre}}! Te recordamos tu turno en FisioSalud el {{fecha}} a las {{hora}}hs. ¡Te esperamos!').replace('{{nombre}}', pac?.nombre || '').replace('{{fecha}}', selectedTurno.fecha ? formatFecha(selectedTurno.fecha.toDate()) : '').replace('{{hora}}', selectedTurno.horaInicio))}`}
                     target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-green-600 hover:underline">
                     <MessageCircle className="w-4 h-4" /> Recordatorio WhatsApp
                   </a>
@@ -526,7 +554,7 @@ export default function Agenda() {
           </div>
         )}
 
-        {/* Confirmación de acción crítica (#13, #14) */}
+        {/* Confirmación de acción crítica + notas de evolución */}
         {selectedTurno && pendingEstado && (
           <div className="space-y-4">
             <div className={`rounded-xl p-4 text-sm ${pendingEstado.estado === 'cancelado' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'}`}>
@@ -536,8 +564,19 @@ export default function Agenda() {
                 <strong>{selectedTurno.fecha ? formatFecha(selectedTurno.fecha.toDate()) : ''}</strong> a las{' '}
                 <strong>{selectedTurno.horaInicio}hs</strong>.
               </p>
-              <p className="text-xs mt-1 opacity-70">Esta acción notificará al paciente en "Mis Turnos".</p>
             </div>
+            {pendingEstado.estado === 'completado' && (
+              <div>
+                <Textarea
+                  label="Notas de evolución (opcional)"
+                  placeholder="Ej: Buena movilidad. Se indicó continuar con ejercicios de propiocepción..."
+                  value={notasEvolucion}
+                  onChange={e => setNotasEvolucion(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-gray-400 mt-1">Se guardará en el historial del paciente.</p>
+              </div>
+            )}
             <div className="flex gap-2">
               <Button
                 variant={pendingEstado.estado === 'cancelado' ? 'danger' : 'secondary'}
@@ -545,7 +584,7 @@ export default function Agenda() {
                 onClick={() => cambiarEstado(pendingEstado.estado)}
                 className="flex-1"
               >
-                Sí, confirmar
+                Confirmar
               </Button>
               <Button variant="secondary" onClick={() => setPendingEstado(null)} className="flex-1">
                 Volver
@@ -556,10 +595,39 @@ export default function Agenda() {
       </Modal>
 
       {/* Bloqueo modal */}
-      <Modal open={bloqueoModal} onClose={() => setBloqueoModal(false)} title="Bloquear día" size="sm">
+      <Modal open={bloqueoModal} onClose={() => setBloqueoModal(false)} title="Bloquear fecha" size="sm">
         <div className="space-y-4">
           <Input label="Fecha" type="date" value={bloqueoForm.fecha} onChange={e => setBloqueoForm(p => ({ ...p, fecha: e.target.value }))} />
-          <Input label="Motivo (opcional)" placeholder="Ej: Feriado, vacaciones..." value={bloqueoForm.motivo} onChange={e => setBloqueoForm(p => ({ ...p, motivo: e.target.value }))} />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de bloqueo</label>
+            <div className="flex gap-2">
+              {[{ value: 'dia_completo', label: 'Día completo' }, { value: 'franja', label: 'Franja horaria' }].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setBloqueoForm(p => ({ ...p, tipo: opt.value }))}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${bloqueoForm.tipo === opt.value ? 'bg-[#1565C0] border-[#1565C0] text-white' : 'border-gray-200 text-gray-600'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {bloqueoForm.tipo === 'franja' && (
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Desde</label>
+                <input type="time" value={bloqueoForm.franjaInicio} onChange={e => setBloqueoForm(p => ({ ...p, franjaInicio: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]" />
+              </div>
+              <span className="text-gray-400 text-sm mt-4">hasta</span>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+                <input type="time" value={bloqueoForm.franjaFin} onChange={e => setBloqueoForm(p => ({ ...p, franjaFin: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1565C0]" />
+              </div>
+            </div>
+          )}
+          <Input label="Motivo (opcional)" placeholder="Ej: Reunión, vacaciones..." value={bloqueoForm.motivo} onChange={e => setBloqueoForm(p => ({ ...p, motivo: e.target.value }))} />
           <div className="flex gap-2 pt-2">
             <Button className="flex-1" onClick={handleAddBloqueo}>Bloquear</Button>
             <Button variant="secondary" className="flex-1" onClick={() => setBloqueoModal(false)}>Cancelar</Button>
