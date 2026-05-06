@@ -69,7 +69,7 @@ export default function Login() {
           </Button>
 
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/paciente')}
             className="text-sm text-gray-400 hover:text-gray-600 hover:underline"
           >
             ← Volver
