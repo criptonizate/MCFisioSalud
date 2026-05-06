@@ -31,7 +31,7 @@ export default function Inicio() {
           <img
             src="/Logo_fisiosalud.png"
             alt="FisioSalud"
-            className="h-44 w-auto object-contain mx-auto mb-4"
+            className="h-56 w-auto object-contain mx-auto mb-4"
           />
           <h1 className="text-2xl font-bold text-[#1565C0] mb-1">Lic. Miguel Carrizo</h1>
           <p className="text-gray-500 text-sm mb-5">Rehabilitación Traumatológica y Deportiva</p>
